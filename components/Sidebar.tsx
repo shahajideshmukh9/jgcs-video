@@ -13,8 +13,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
     { id: 'dashboard', label: 'Dashboard & Analytics', icon: Activity },
     { id: 'awareness', label: 'Situational Awareness', icon: MapIcon },
     { id: 'missions', label: 'Missions', icon: Target },
-    { id: 'approved', label: 'Approved Mission', icon: CheckCircle, indent: true },
-    { id: 'requested', label: 'Requested Mission', icon: Clock, indent: true },
+    { id: 'plan-mission', label: 'Plan Mission', icon: CheckCircle, indent: true },
     { id: 'vehicles', label: 'Vehicle Library', icon: Package },
     { id: 'operators', label: 'Operator Library', icon: User }
   ]

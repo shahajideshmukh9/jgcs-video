@@ -18,12 +18,11 @@ export default function DashboardLayout() {
     <div className="flex min-h-screen bg-slate-900">
       <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
       {currentPage === 'dashboard' && <MissionList />}
-      {currentPage === 'missions' && <MissionTypes />}
-      {currentPage === 'approved' && <RoutePlanning />}
+      {currentPage === 'missions' && <MissionList />}
+      {currentPage === 'plan-mission' && <RoutePlanning />}
       {currentPage === 'awareness' && <LiveMap />}
       {currentPage === 'operators' && <RolesPermissions />}
       {currentPage === 'vehicles' && <MissionList />}
-      {currentPage === 'requested' && <MissionList />}
       {currentPage === 'profile' && <UserProfile />}
       {currentPage === 'settings' && <Settings />}
       {currentPage === 'guide' && <Guide />}

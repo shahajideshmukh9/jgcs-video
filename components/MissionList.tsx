@@ -2,12 +2,14 @@
 
 import { useState } from 'react'
 import { Search, Filter, Plus, AlertTriangle } from 'lucide-react'
+import { useRouter } from 'next/navigation';
 import { missionsData } from '@/lib/data'
 import { Mission } from '@/types'
 
 export default function MissionList() {
   const [filter, setFilter] = useState<string>('All')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const router = useRouter();
 
   const getStatusColor = (status: Mission['status']): string => {
     switch (status) {
@@ -67,7 +69,7 @@ export default function MissionList() {
               <Filter size={20} />
               <span>Filters</span>
             </button>
-            <button className="flex items-center space-x-2 px-6 py-3 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-lg">
+            <button onClick={() => router.push('/plan-mission')} className="flex items-center space-x-2 px-6 py-3 bg-white text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition-colors shadow-lg">
               <Plus size={20} />
               <span>Plan Mission</span>
             </button>
