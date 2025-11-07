@@ -27,6 +27,13 @@ interface LocationOption {
   display_name: string
 }
 
+interface CorridorOption {
+  value: string
+  label: string
+  color: string
+  description: string
+}
+
 interface MissionStats {
   totalDistance: number
   flightTime: number
@@ -34,6 +41,18 @@ interface MissionStats {
 }
 
 export default function RoutePlanning() {
+  // Corridor options
+  const corridorOptions: CorridorOption[] = [
+    { value: 'northern', label: 'Northern Border Corridor', color: 'blue', description: 'India-Nepal border surveillance' },
+    { value: 'western', label: 'Western Border Corridor', color: 'orange', description: 'India-Pakistan border region' },
+    { value: 'eastern', label: 'Eastern Border Corridor', color: 'green', description: 'India-Bangladesh/Myanmar border' },
+    { value: 'southern', label: 'Southern Coastal Corridor', color: 'purple', description: 'Coastal surveillance and monitoring' },
+    { value: 'central', label: 'Central Regional Corridor', color: 'yellow', description: 'Domestic operations zone' },
+  ]
+
+  // Corridor state
+  const [selectedCorridor, setSelectedCorridor] = useState<CorridorOption | null>(corridorOptions[0])
+
   const [waypoints, setWaypoints] = useState<Waypoint[]>([
     { 
       id: 'start', 
@@ -235,6 +254,11 @@ export default function RoutePlanning() {
     setSelectedEndLocation(option)
   }
 
+  // Handle corridor selection
+  const handleCorridorSelect = (option: CorridorOption | null) => {
+    setSelectedCorridor(option)
+  }
+
   // Update start point
   const updateStartPoint = () => {
     if (!selectedStartLocation) return
@@ -308,6 +332,18 @@ export default function RoutePlanning() {
     setWaypoints(waypoints.filter(wp => wp.id !== id))
   }
 
+  // Get color class for corridor badges
+  const getColorClass = (color: string) => {
+    const colorMap: Record<string, string> = {
+      blue: 'bg-blue-600 border-blue-500',
+      orange: 'bg-orange-600 border-orange-500',
+      green: 'bg-green-600 border-green-500',
+      purple: 'bg-purple-600 border-purple-500',
+      yellow: 'bg-yellow-600 border-yellow-500',
+    }
+    return colorMap[color] || 'bg-blue-600 border-blue-500'
+  }
+
   const customSelectStyles = {
     control: (base: any) => ({
       ...base,
@@ -353,6 +389,32 @@ export default function RoutePlanning() {
       color: '#94a3b8'
     })
   }
+
+  // Custom styles for corridor dropdown
+  const customCorridorSelectStyles = {
+    ...customSelectStyles,
+    option: (base: any, state: any) => ({
+      ...base,
+      backgroundColor: state.isFocused ? '#475569' : '#334155',
+      color: '#fff',
+      cursor: 'pointer',
+      padding: '10px 12px',
+      '&:hover': {
+        backgroundColor: '#475569'
+      }
+    })
+  }
+
+  // Format corridor option label with color indicator and description
+  const formatCorridorOptionLabel = (option: CorridorOption) => (
+    <div className="flex items-start space-x-3">
+      <div className={`w-3 h-3 rounded-full mt-1 ${getColorClass(option.color).split(' ')[0]}`}></div>
+      <div className="flex-1">
+        <div className="font-medium text-white">{option.label}</div>
+        <div className="text-xs text-slate-400">{option.description}</div>
+      </div>
+    </div>
+  )
 
   // Format flight time display
   const formatFlightTime = (minutes: number): string => {
@@ -417,6 +479,26 @@ export default function RoutePlanning() {
 
           {/* Sidebar Content */}
           <div className={`h-full overflow-y-auto p-4 space-y-4 ${sidebarOpen ? 'opacity-100' : 'opacity-0'}`}>
+            {/* Corridor Selection - NEW FEATURE */}
+            <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl p-4 border border-slate-700 shadow-xl">
+              <div className="flex items-center space-x-2 mb-3">
+                <MapIcon className="text-blue-400" size={18} />
+                <span className="text-slate-300 text-xs font-semibold">OPERATION CORRIDOR</span>
+              </div>
+              
+              <Select
+                value={selectedCorridor}
+                onChange={handleCorridorSelect}
+                options={corridorOptions}
+                placeholder="Select corridor..."
+                formatOptionLabel={formatCorridorOptionLabel}
+                styles={customCorridorSelectStyles}
+                isClearable={false}
+                isSearchable={true}
+                className="text-sm"
+              />
+            </div>
+
             {/* Start Point */}
             <div className="bg-slate-800 rounded-xl p-4 border border-green-500 shadow-lg">
               <div className="flex items-center justify-between mb-2">
