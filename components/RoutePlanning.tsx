@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { CheckCircle, MapPin, Plus, X, Map as MapIcon, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { CheckCircle, MapPin, Plus, X, Map as MapIcon, Search, ChevronLeft, ChevronRight, Edit } from 'lucide-react'
 import dynamic from 'next/dynamic'
 import Select from 'react-select'
 import { Waypoint } from '@/types'
@@ -68,13 +68,31 @@ export default function RoutePlanning() {
   const [isSearching, setIsSearching] = useState(false)
   const [selectedLocation, setSelectedLocation] = useState<LocationOption | null>(null)
   const [searchInput, setSearchInput] = useState('')
+  
+  // Start point search states
+  const [startSearchOptions, setStartSearchOptions] = useState<LocationOption[]>([])
+  const [isStartSearching, setIsStartSearching] = useState(false)
+  const [selectedStartLocation, setSelectedStartLocation] = useState<LocationOption | null>(null)
+  const [startSearchInput, setStartSearchInput] = useState('')
+  const [editingStart, setEditingStart] = useState(false)
+  
+  // End point search states
+  const [endSearchOptions, setEndSearchOptions] = useState<LocationOption[]>([])
+  const [isEndSearching, setIsEndSearching] = useState(false)
+  const [selectedEndLocation, setSelectedEndLocation] = useState<LocationOption | null>(null)
+  const [endSearchInput, setEndSearchInput] = useState('')
+  const [editingEnd, setEditingEnd] = useState(false)
+  
   const [missionStats, setMissionStats] = useState<MissionStats>({
     totalDistance: 0,
     flightTime: 0,
     batteryUsage: 0
   })
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  
   const searchTimeoutRef = useRef<NodeJS.Timeout>()
+  const startSearchTimeoutRef = useRef<NodeJS.Timeout>()
+  const endSearchTimeoutRef = useRef<NodeJS.Timeout>()
 
   // Haversine formula to calculate distance between two coordinates (in km)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -131,14 +149,18 @@ export default function RoutePlanning() {
     setMissionStats(stats)
   }, [waypoints])
 
-  // Function to search locations using Nominatim API
-  const searchLocations = async (query: string) => {
+  // Generic function to search locations using Nominatim API
+  const searchLocations = async (
+    query: string, 
+    setOptions: React.Dispatch<React.SetStateAction<LocationOption[]>>,
+    setSearching: React.Dispatch<React.SetStateAction<boolean>>
+  ) => {
     if (!query || query.length < 3) {
-      setSearchOptions([])
+      setOptions([])
       return
     }
 
-    setIsSearching(true)
+    setSearching(true)
     try {
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in`
@@ -153,16 +175,16 @@ export default function RoutePlanning() {
         display_name: item.display_name
       }))
       
-      setSearchOptions(options)
+      setOptions(options)
     } catch (error) {
       console.error('Error searching locations:', error)
-      setSearchOptions([])
+      setOptions([])
     } finally {
-      setIsSearching(false)
+      setSearching(false)
     }
   }
 
-  // Debounced search
+  // Debounced search for intermediate stops
   const handleSearchInputChange = (inputValue: string) => {
     setSearchInput(inputValue)
     
@@ -171,7 +193,33 @@ export default function RoutePlanning() {
     }
     
     searchTimeoutRef.current = setTimeout(() => {
-      searchLocations(inputValue)
+      searchLocations(inputValue, setSearchOptions, setIsSearching)
+    }, 500)
+  }
+
+  // Debounced search for start point
+  const handleStartSearchInputChange = (inputValue: string) => {
+    setStartSearchInput(inputValue)
+    
+    if (startSearchTimeoutRef.current) {
+      clearTimeout(startSearchTimeoutRef.current)
+    }
+    
+    startSearchTimeoutRef.current = setTimeout(() => {
+      searchLocations(inputValue, setStartSearchOptions, setIsStartSearching)
+    }, 500)
+  }
+
+  // Debounced search for end point
+  const handleEndSearchInputChange = (inputValue: string) => {
+    setEndSearchInput(inputValue)
+    
+    if (endSearchTimeoutRef.current) {
+      clearTimeout(endSearchTimeoutRef.current)
+    }
+    
+    endSearchTimeoutRef.current = setTimeout(() => {
+      searchLocations(inputValue, setEndSearchOptions, setIsEndSearching)
     }, 500)
   }
 
@@ -179,6 +227,57 @@ export default function RoutePlanning() {
     setSelectedLocation(option)
   }
 
+  const handleStartLocationSelect = (option: LocationOption | null) => {
+    setSelectedStartLocation(option)
+  }
+
+  const handleEndLocationSelect = (option: LocationOption | null) => {
+    setSelectedEndLocation(option)
+  }
+
+  // Update start point
+  const updateStartPoint = () => {
+    if (!selectedStartLocation) return
+
+    const newStartPoint: Waypoint = {
+      id: 'start',
+      label: `Start: ${selectedStartLocation.label.split(',')[0]}`,
+      coords: `${selectedStartLocation.lat.toFixed(4)}° N, ${selectedStartLocation.lon.toFixed(4)}° E`,
+      alt: '120m AGL',
+      color: 'bg-green-500',
+      lat: selectedStartLocation.lat,
+      lon: selectedStartLocation.lon
+    }
+
+    const updatedWaypoints = [newStartPoint, ...waypoints.slice(1)]
+    setWaypoints(updatedWaypoints)
+    setSelectedStartLocation(null)
+    setStartSearchInput('')
+    setEditingStart(false)
+  }
+
+  // Update end point
+  const updateEndPoint = () => {
+    if (!selectedEndLocation) return
+
+    const newEndPoint: Waypoint = {
+      id: 'end',
+      label: `End: ${selectedEndLocation.label.split(',')[0]}`,
+      coords: `${selectedEndLocation.lat.toFixed(4)}° N, ${selectedEndLocation.lon.toFixed(4)}° E`,
+      alt: '100m AGL',
+      color: 'bg-red-500',
+      lat: selectedEndLocation.lat,
+      lon: selectedEndLocation.lon
+    }
+
+    const updatedWaypoints = [...waypoints.slice(0, -1), newEndPoint]
+    setWaypoints(updatedWaypoints)
+    setSelectedEndLocation(null)
+    setEndSearchInput('')
+    setEditingEnd(false)
+  }
+
+  // Add intermediate waypoint
   const addWaypoint = () => {
     if (!selectedLocation) return
 
@@ -325,9 +424,61 @@ export default function RoutePlanning() {
                   <MapPin className="text-green-500" size={16} />
                   <span className="text-slate-400 text-xs font-semibold">START POINT</span>
                 </div>
+                <button 
+                  onClick={() => setEditingStart(!editingStart)}
+                  className="text-green-400 hover:text-green-300 transition-colors"
+                  title="Edit start point"
+                >
+                  <Edit size={16} />
+                </button>
               </div>
-              <div className="text-white font-medium text-sm">{waypoints[0]?.label.replace('Start: ', '')}</div>
-              <div className="text-slate-400 text-xs mt-1">{waypoints[0]?.coords}</div>
+              
+              {editingStart ? (
+                <div className="space-y-2">
+                  <Select
+                    value={selectedStartLocation}
+                    onChange={handleStartLocationSelect}
+                    onInputChange={handleStartSearchInputChange}
+                    inputValue={startSearchInput}
+                    options={startSearchOptions}
+                    isLoading={isStartSearching}
+                    placeholder="Search new start location..."
+                    noOptionsMessage={() => startSearchInput.length < 3 ? "Type at least 3 characters" : "No locations found"}
+                    loadingMessage={() => "Searching..."}
+                    styles={customSelectStyles}
+                    isClearable
+                    className="text-sm"
+                  />
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={updateStartPoint}
+                      disabled={!selectedStartLocation}
+                      className={`flex-1 px-3 py-2 rounded text-xs font-semibold transition-colors ${
+                        selectedStartLocation
+                          ? 'bg-green-600 text-white hover:bg-green-700'
+                          : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                      }`}
+                    >
+                      Update
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingStart(false)
+                        setSelectedStartLocation(null)
+                        setStartSearchInput('')
+                      }}
+                      className="flex-1 px-3 py-2 bg-slate-700 text-white rounded text-xs font-semibold hover:bg-slate-600 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-white font-medium text-sm">{waypoints[0]?.label.replace('Start: ', '')}</div>
+                  <div className="text-slate-400 text-xs mt-1">{waypoints[0]?.coords}</div>
+                </>
+              )}
             </div>
 
             {/* End Point */}
@@ -337,9 +488,61 @@ export default function RoutePlanning() {
                   <MapPin className="text-red-500" size={16} />
                   <span className="text-slate-400 text-xs font-semibold">END POINT</span>
                 </div>
+                <button 
+                  onClick={() => setEditingEnd(!editingEnd)}
+                  className="text-red-400 hover:text-red-300 transition-colors"
+                  title="Edit end point"
+                >
+                  <Edit size={16} />
+                </button>
               </div>
-              <div className="text-white font-medium text-sm">{waypoints[waypoints.length - 1]?.label.replace('End: ', '')}</div>
-              <div className="text-slate-400 text-xs mt-1">{waypoints[waypoints.length - 1]?.coords}</div>
+              
+              {editingEnd ? (
+                <div className="space-y-2">
+                  <Select
+                    value={selectedEndLocation}
+                    onChange={handleEndLocationSelect}
+                    onInputChange={handleEndSearchInputChange}
+                    inputValue={endSearchInput}
+                    options={endSearchOptions}
+                    isLoading={isEndSearching}
+                    placeholder="Search new end location..."
+                    noOptionsMessage={() => endSearchInput.length < 3 ? "Type at least 3 characters" : "No locations found"}
+                    loadingMessage={() => "Searching..."}
+                    styles={customSelectStyles}
+                    isClearable
+                    className="text-sm"
+                  />
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={updateEndPoint}
+                      disabled={!selectedEndLocation}
+                      className={`flex-1 px-3 py-2 rounded text-xs font-semibold transition-colors ${
+                        selectedEndLocation
+                          ? 'bg-red-600 text-white hover:bg-red-700'
+                          : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                      }`}
+                    >
+                      Update
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingEnd(false)
+                        setSelectedEndLocation(null)
+                        setEndSearchInput('')
+                      }}
+                      className="flex-1 px-3 py-2 bg-slate-700 text-white rounded text-xs font-semibold hover:bg-slate-600 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-white font-medium text-sm">{waypoints[waypoints.length - 1]?.label.replace('End: ', '')}</div>
+                  <div className="text-slate-400 text-xs mt-1">{waypoints[waypoints.length - 1]?.coords}</div>
+                </>
+              )}
             </div>
 
             {/* Add Intermediate Stops */}

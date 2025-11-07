@@ -44,8 +44,6 @@ export interface Waypoint {
   coords: string
   alt: string
   color: string
-  lat: number
-  lon: number
 }
 
 export interface MenuItem {
@@ -53,4 +51,35 @@ export interface MenuItem {
   label: string
   icon: LucideIcon
   indent?: boolean
+}
+
+// NEW TYPES FOR VEHICLE LIBRARY
+export interface Vehicle {
+  id: string
+  name: string
+  model: string
+  type: string
+  status: 'Active' | 'Maintenance' | 'Offline' | 'In Flight'
+  battery: number
+  location: string
+  flightHours: number
+  lastMission: string
+  missions: number
+}
+
+// NEW TYPES FOR OPERATOR LIBRARY
+export interface Operator {
+  id: string
+  name: string
+  initials: string
+  role: 'Operator' | 'Planner' | 'Commander' | 'Administrator'
+  status: 'Active' | 'Offline' | 'On Mission' | 'On Leave'
+  email: string
+  phone: string
+  location: string
+  missions: number
+  successRate: number
+  flightHours: number
+  certifications: string[]
+  lastActive: string
 }

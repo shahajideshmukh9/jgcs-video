@@ -10,6 +10,8 @@ import RolesPermissions from './RolesPermissions'
 import UserProfile from './UserProfile'
 import Settings from './Settings'
 import Guide from './Guide'
+import VehicleLibrary from './VehicleLibrary'
+import OperatorLibrary from './OperatorLibrary'
 
 export default function DashboardLayout() {
   const [currentPage, setCurrentPage] = useState<string>('dashboard')
@@ -22,8 +24,8 @@ export default function DashboardLayout() {
       {currentPage === 'plan-mission' && <RoutePlanning />}
       {currentPage === 'mission-types' && <MissionTypes onPageChange={setCurrentPage} />}
       {currentPage === 'awareness' && <LiveMap />}
-      {currentPage === 'operators' && <RolesPermissions />}
-      {currentPage === 'vehicles' && <MissionList onPageChange={setCurrentPage} />}
+      {currentPage === 'vehicles' && <VehicleLibrary />}
+      {currentPage === 'operators' && <OperatorLibrary />}
       {currentPage === 'profile' && <UserProfile />}
       {currentPage === 'settings' && <Settings />}
       {currentPage === 'guide' && <Guide />}

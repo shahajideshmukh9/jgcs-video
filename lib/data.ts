@@ -1,5 +1,5 @@
 import { Target, Package, Sprout, AlertTriangle, Eye, Map as MapIcon, Truck, Activity } from 'lucide-react'
-import { Mission, MissionType, Role } from '@/types'
+import { Mission, MissionType, Role, Vehicle, Operator } from '@/types'
 
 export const missionsData: Mission[] = [
   {
@@ -137,5 +137,229 @@ export const rolesData: Role[] = [
       { name: 'Audit Logs', description: 'View and manage comprehensive audit trails', allowed: true },
       { name: 'Role Management', description: 'Create, modify, and delete user roles', allowed: true }
     ]
+  }
+]
+
+// NEW: VEHICLES DATA
+export const vehiclesData: Vehicle[] = [
+  {
+    id: 'UAV-X1-Alpha',
+    name: 'Alpha Guardian',
+    model: 'X1-Surveillance',
+    type: 'Surveillance',
+    status: 'In Flight',
+    battery: 65,
+    location: 'Northern Sector',
+    flightHours: 342,
+    lastMission: '2h ago',
+    missions: 127
+  },
+  {
+    id: 'UAV-C2-Beta',
+    name: 'Beta Transporter',
+    model: 'C2-Cargo',
+    type: 'Logistics',
+    status: 'Active',
+    battery: 95,
+    location: 'Base Station',
+    flightHours: 218,
+    lastMission: '5h ago',
+    missions: 89
+  },
+  {
+    id: 'UAV-A3-Gamma',
+    name: 'Gamma Surveyor',
+    model: 'A3-Agriculture',
+    type: 'Agriculture',
+    status: 'Active',
+    battery: 88,
+    location: 'Base Station',
+    flightHours: 156,
+    lastMission: '1d ago',
+    missions: 62
+  },
+  {
+    id: 'UAV-R1-Delta',
+    name: 'Delta Rescuer',
+    model: 'R1-Emergency',
+    type: 'Emergency',
+    status: 'Maintenance',
+    battery: 15,
+    location: 'Maintenance Bay',
+    flightHours: 298,
+    lastMission: '2d ago',
+    missions: 104
+  },
+  {
+    id: 'UAV-I2-Epsilon',
+    name: 'Epsilon Inspector',
+    model: 'I2-Inspection',
+    type: 'Inspection',
+    status: 'Offline',
+    battery: 0,
+    location: 'Hangar',
+    flightHours: 445,
+    lastMission: '3d ago',
+    missions: 178
+  },
+  {
+    id: 'UAV-M1-Zeta',
+    name: 'Zeta Mapper',
+    model: 'M1-Mapping',
+    type: 'Mapping',
+    status: 'Active',
+    battery: 92,
+    location: 'Base Station',
+    flightHours: 267,
+    lastMission: '1h ago',
+    missions: 95
+  },
+  {
+    id: 'UAV-D1-Theta',
+    name: 'Theta Courier',
+    model: 'D1-Delivery',
+    type: 'Delivery',
+    status: 'In Flight',
+    battery: 78,
+    location: 'East Route',
+    flightHours: 189,
+    lastMission: '30min ago',
+    missions: 142
+  },
+  {
+    id: 'UAV-E1-Kappa',
+    name: 'Kappa Monitor',
+    model: 'E1-Environmental',
+    type: 'Monitoring',
+    status: 'Active',
+    battery: 100,
+    location: 'Base Station',
+    flightHours: 312,
+    lastMission: '4h ago',
+    missions: 118
+  }
+]
+
+// NEW: OPERATORS DATA
+export const operatorsData: Operator[] = [
+  {
+    id: 'EMP-2024-001',
+    name: 'J. Smith',
+    initials: 'JS',
+    role: 'Commander',
+    status: 'On Mission',
+    email: 'j.smith@jarbits.com',
+    phone: '+91 98765 43210',
+    location: 'Pune, Maharashtra',
+    missions: 127,
+    successRate: 98.5,
+    flightHours: 342,
+    certifications: ['FAA Part 107', 'Advanced UAV Operations', 'Night Flight'],
+    lastActive: '2h ago'
+  },
+  {
+    id: 'EMP-2024-002',
+    name: 'M. Chen',
+    initials: 'MC',
+    role: 'Operator',
+    status: 'Active',
+    email: 'm.chen@jarbits.com',
+    phone: '+91 98765 43211',
+    location: 'Mumbai, Maharashtra',
+    missions: 89,
+    successRate: 96.8,
+    flightHours: 218,
+    certifications: ['FAA Part 107', 'Cargo Operations'],
+    lastActive: '5h ago'
+  },
+  {
+    id: 'EMP-2024-003',
+    name: 'S. Patel',
+    initials: 'SP',
+    role: 'Planner',
+    status: 'Active',
+    email: 's.patel@jarbits.com',
+    phone: '+91 98765 43212',
+    location: 'Ahmedabad, Gujarat',
+    missions: 62,
+    successRate: 97.2,
+    flightHours: 156,
+    certifications: ['FAA Part 107', 'Mission Planning', 'Agricultural Surveying'],
+    lastActive: '1d ago'
+  },
+  {
+    id: 'EMP-2024-004',
+    name: 'A. Johnson',
+    initials: 'AJ',
+    role: 'Operator',
+    status: 'On Leave',
+    email: 'a.johnson@jarbits.com',
+    phone: '+91 98765 43213',
+    location: 'Bangalore, Karnataka',
+    missions: 104,
+    successRate: 95.1,
+    flightHours: 298,
+    certifications: ['FAA Part 107', 'Emergency Response', 'Search & Rescue'],
+    lastActive: '2d ago'
+  },
+  {
+    id: 'EMP-2024-005',
+    name: 'R. Kumar',
+    initials: 'RK',
+    role: 'Operator',
+    status: 'Offline',
+    email: 'r.kumar@jarbits.com',
+    phone: '+91 98765 43214',
+    location: 'Delhi, NCR',
+    missions: 178,
+    successRate: 99.2,
+    flightHours: 445,
+    certifications: ['FAA Part 107', 'Infrastructure Inspection', 'Advanced Imaging'],
+    lastActive: '3d ago'
+  },
+  {
+    id: 'EMP-2024-006',
+    name: 'L. Williams',
+    initials: 'LW',
+    role: 'Administrator',
+    status: 'Active',
+    email: 'l.williams@jarbits.com',
+    phone: '+91 98765 43215',
+    location: 'Pune, Maharashtra',
+    missions: 52,
+    successRate: 100,
+    flightHours: 167,
+    certifications: ['FAA Part 107', 'System Administration', 'Security Management'],
+    lastActive: '30min ago'
+  },
+  {
+    id: 'EMP-2024-007',
+    name: 'K. Singh',
+    initials: 'KS',
+    role: 'Planner',
+    status: 'Active',
+    email: 'k.singh@jarbits.com',
+    phone: '+91 98765 43216',
+    location: 'Chandigarh, Punjab',
+    missions: 95,
+    successRate: 97.8,
+    flightHours: 267,
+    certifications: ['FAA Part 107', 'Route Optimization', '3D Mapping'],
+    lastActive: '1h ago'
+  },
+  {
+    id: 'EMP-2024-008',
+    name: 'T. Anderson',
+    initials: 'TA',
+    role: 'Operator',
+    status: 'On Mission',
+    email: 't.anderson@jarbits.com',
+    phone: '+91 98765 43217',
+    location: 'Hyderabad, Telangana',
+    missions: 142,
+    successRate: 98.9,
+    flightHours: 389,
+    certifications: ['FAA Part 107', 'Delivery Operations', 'Urban Navigation'],
+    lastActive: '30min ago'
   }
 ]
