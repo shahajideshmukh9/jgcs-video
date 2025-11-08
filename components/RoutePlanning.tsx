@@ -454,13 +454,18 @@ export default function RoutePlanning() {
 
     try {
       const missionData = {
-        missionName: missionName.trim(),
-        missionType: 'Route Planning',
-        corridor: selectedCorridor,
-        missionStats: {
-          totalDistance: missionStats.totalDistance,
-          flightTime: missionStats.flightTime,
-          batteryUsage: missionStats.batteryUsage,
+        mission_name: missionName.trim(), // Changed from missionName
+        mission_type: 'Route Planning', // Changed from missionType
+        corridor: selectedCorridor ? {
+          value: selectedCorridor.value,
+          label: selectedCorridor.label,
+          color: selectedCorridor.color,
+          description: selectedCorridor.description
+        } : null,
+        mission_stats: { // Changed from missionStats
+          total_distance: missionStats.totalDistance, // Changed from totalDistance
+          flight_time: missionStats.flightTime, // Changed from flightTime
+          battery_usage: missionStats.batteryUsage, // Changed from batteryUsage
         },
         waypoints: waypoints.map(wp => ({
           id: wp.id,
@@ -471,10 +476,10 @@ export default function RoutePlanning() {
           lat: wp.lat,
           lon: wp.lon,
         })),
-        createdBy: 'current_user', // Replace with actual user from auth
+        created_by: 'current_user', // Changed from createdBy
         notes: '',
-        vehicleId: null,
-        operatorId: null,
+        vehicle_id: null, // Changed from vehicleId
+        operator_id: null, // Changed from operatorId
       }
 
       const result = await createMission(missionData)
