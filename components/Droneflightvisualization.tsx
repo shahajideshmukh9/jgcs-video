@@ -412,7 +412,7 @@ const DroneFlightVisualization: React.FC = () => {
   // ============================================================================
 
   return (
-    <div className="flex flex-col h-screen bg-gray-950">
+    <div className="flex flex-col h-full w-full bg-gray-950">
       {/* Header */}
       <div className="bg-gray-900 border-b border-gray-800 p-4">
         <div className="flex items-center justify-between">
@@ -479,7 +479,7 @@ const DroneFlightVisualization: React.FC = () => {
           </MapContainer>
 
           {/* Map overlay - Telemetry display */}
-          <div className="absolute top-4 left-4 bg-gray-900/95 backdrop-blur-sm rounded-lg p-4 border border-gray-700 min-w-[300px] z-[1000]">
+          <div className="absolute top-4 right-4 bg-gray-900/95 backdrop-blur-sm rounded-lg p-4 border border-gray-700 min-w-[300px] z-[1000]">
             <h3 className="text-lg font-semibold text-white mb-3">Live Telemetry</h3>
             
             <div className="space-y-2 text-sm">
