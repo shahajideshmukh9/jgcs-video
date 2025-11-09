@@ -524,14 +524,27 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   };
 
   const startTelemetryUpdates = () => {
+    // Clear any existing interval first
     if (telemetryInterval.current) {
-      clearInterval(telemetryInterval.current);
+        clearInterval(telemetryInterval.current);
+        telemetryInterval.current = null;
     }
     
+    // Start new interval
     telemetryInterval.current = setInterval(() => {
-      fetchStatus();
-      fetchTelemetry();
-    }, 500);
+        fetchStatus();
+        fetchTelemetry();
+    }, 1000);
+    
+    console.log('✅ Telemetry updates started');
+  };
+
+  const stopTelemetryUpdates = () => {
+    if (telemetryInterval.current) {
+        clearInterval(telemetryInterval.current);
+        telemetryInterval.current = null;
+        console.log('🛑 Telemetry updates stopped');
+    }
   };
 
   // ============================================================================
@@ -565,22 +578,84 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   // ============================================================================
 
   useEffect(() => {
-    // Auto-connect to simulator on mount
+    let isMounted = true;
+    
     const initializeConnection = async () => {
-      await connectToSimulator();
+        if (!isMounted) return;
+        
+        try {
+        setLoading(prev => ({ ...prev, connect: true }));
+        showToast('Connecting to simulator...', 'info');
+        
+        const response = await fetch(`${API_BASE}/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to connect');
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && isMounted) {
+            showToast('✅ Connected to PX4 SITL', 'success');
+            setIsConnected(true);
+            
+            // Fetch initial status once
+            await fetchStatus();
+            
+            // Start telemetry polling (single interval)
+            if (isMounted && !telemetryInterval.current) {
+            telemetryInterval.current = setInterval(() => {
+                fetchStatus();
+                fetchTelemetry();
+            }, 1000);
+            }
+        }
+        } catch (error: any) {
+        if (isMounted) {
+            console.error('❌ Connection error:', error);
+            showToast('Failed to connect to simulator', 'error');
+            setIsConnected(false);
+        }
+        } finally {
+        if (isMounted) {
+            setLoading(prev => ({ ...prev, connect: false }));
+        }
+        }
     };
     
     initializeConnection();
     
+    // Cleanup on unmount
     return () => {
-      if (telemetryInterval.current) {
+        isMounted = false;
+        
+        if (telemetryInterval.current) {
         clearInterval(telemetryInterval.current);
-      }
-      if (wsRef.current) {
+        telemetryInterval.current = null;
+        }
+        if (wsRef.current) {
         wsRef.current.close();
-      }
+        wsRef.current = null;
+        }
     };
-  }, []);
+    }, []); // Run once on mount
+
+    // Effect: Handle selected mission changes
+    useEffect(() => {
+    if (selectedMission?.id) {
+        setCurrentMissionId(selectedMission.id);
+        
+        // Update map center
+        const newCenter = getDefaultPosition();
+        setMapCenter(newCenter);
+        
+        // Show mission loaded notification (separate from connection)
+        showToast(`Mission "${selectedMission.name}" loaded`, 'success');
+    }
+  }, [selectedMission?.id]); // Only when mission ID changes
 
   // ============================================================================
   // RENDER HELPERS
