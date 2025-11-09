@@ -1,9 +1,18 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { ArrowLeft } from 'lucide-react';
+
+// Fix Leaflet default icon issue
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -65,6 +74,27 @@ interface FlightPath {
   timestamp: number;
 }
 
+interface MissionWaypoint {
+  lat: number;
+  lng: number;
+  alt?: number;
+  name?: string;
+}
+
+interface SelectedMission {
+  id: string;
+  name: string;
+  waypoints: MissionWaypoint[];
+  corridor?: string;
+  distance?: number;
+  status?: string;
+}
+
+interface DroneFlightVisualizationProps {
+  selectedMission?: SelectedMission | null;
+  onBack?: () => void;
+}
+
 // ============================================================================
 // MAP UPDATE COMPONENT
 // ============================================================================
@@ -83,27 +113,42 @@ const MapUpdater: React.FC<{ center: [number, number]; zoom: number }> = ({ cent
 // MAIN COMPONENT
 // ============================================================================
 
-const DroneFlightVisualization: React.FC = () => {
+const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({ 
+  selectedMission = null,
+  onBack 
+}) => {
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [status, setStatus] = useState<DroneStatus | null>(null);
   const [flightPath, setFlightPath] = useState<FlightPath[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [currentMissionId, setCurrentMissionId] = useState<string>('MISSION-001');
+  const [currentMissionId, setCurrentMissionId] = useState<string>(
+    selectedMission?.id || 'MISSION-001'
+  );
   const [takeoffAltitude, setTakeoffAltitude] = useState<number>(10);
   const [loading, setLoading] = useState<{[key: string]: boolean}>({});
   
   const telemetryInterval = useRef<NodeJS.Timeout | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   
-  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  const API_BASE = process.env.NEXT_PUBLIC_DRONE_API_URL || 'http://localhost:7000';
   
-  // Default position (Nagpur, India)
-  const defaultPosition: [number, number] = [21.1458, 79.0882];
+  // Default position (Lucknow, India) or first waypoint of selected mission
+  const defaultPosition: [number, number] = selectedMission?.waypoints?.[0]
+    ? [selectedMission.waypoints[0].lat, selectedMission.waypoints[0].lng]
+    : [26.8467, 80.9462];
   const [mapCenter, setMapCenter] = useState<[number, number]>(defaultPosition);
-  const [mapZoom, setMapZoom] = useState(15);
+  const [mapZoom, setMapZoom] = useState(selectedMission ? 15 : 18);
+
+  // Update mission ID when selectedMission changes
+  useEffect(() => {
+    if (selectedMission?.id) {
+      setCurrentMissionId(selectedMission.id);
+      showToast(`Mission "${selectedMission.name}" loaded`, 'success');
+    }
+  }, [selectedMission?.id]);
 
   // ============================================================================
-  // CUSTOM DRONE ICON
+  // CUSTOM ICONS
   // ============================================================================
 
   const createDroneIcon = (armed: boolean, flying: boolean, yaw: number = 0) => {
@@ -169,60 +214,133 @@ const DroneFlightVisualization: React.FC = () => {
     });
   };
 
+  const createWaypointIcon = (index: number, isActive: boolean = false) => {
+    const color = isActive ? '#22c55e' : '#3b82f6';
+    return L.divIcon({
+      className: 'custom-waypoint-icon',
+      html: `
+        <div style="
+          background: ${color};
+          color: white;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: bold;
+          font-size: 14px;
+          border: 3px solid white;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        ">
+          ${index + 1}
+        </div>
+      `,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+    });
+  };
+
+  // ============================================================================
+  // HELPER FUNCTIONS FOR SAFE COORDINATE HANDLING
+  // ============================================================================
+  
+  const isValidCoordinate = (lat: number | undefined, lon: number | undefined): boolean => {
+    return (
+      lat !== undefined && 
+      lon !== undefined && 
+      !isNaN(lat) && 
+      !isNaN(lon) && 
+      lat !== 0 && 
+      lon !== 0 &&
+      lat >= -90 && 
+      lat <= 90 && 
+      lon >= -180 && 
+      lon <= 180
+    );
+  };
+  
+  const getValidPosition = (
+    telemetryLat?: number, 
+    telemetryLon?: number,
+    statusLat?: number,
+    statusLon?: number
+  ): [number, number] => {
+    if (isValidCoordinate(telemetryLat, telemetryLon)) {
+      return [telemetryLat!, telemetryLon!];
+    }
+    if (isValidCoordinate(statusLat, statusLon)) {
+      return [statusLat!, statusLon!];
+    }
+    return defaultPosition;
+  };
+  
+  const updateMapCenter = (lat?: number, lon?: number) => {
+    if (isValidCoordinate(lat, lon)) {
+      setMapCenter([lat!, lon!]);
+    }
+  };
+
   // ============================================================================
   // API FUNCTIONS
   // ============================================================================
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch(`${API_BASE}/status`);
-      const data = await response.json();
-      
-      if (data.success || data.data) {
-        const statusData = data.data || data;
-        setStatus(statusData);
-        setIsConnected(statusData.connected);
+        const response = await fetch(`${API_BASE}/status`);
+        const data = await response.json();
         
-        // Update map center if we have a valid position
-        if (statusData.current_position && 
-            statusData.current_position.lat !== 0 && 
-            statusData.current_position.lon !== 0) {
-          setMapCenter([statusData.current_position.lat, statusData.current_position.lon]);
+        if (data.success || data.data) {
+          const statusData = data.data || data;
+          setStatus(statusData);
+          setIsConnected(statusData.connected);
+          
+          // Safely update map center with validation (only if not following mission)
+          if (statusData.current_position && status?.flying) {
+            const { lat, lon } = statusData.current_position;
+            if (isValidCoordinate(lat, lon)) {
+              setMapCenter([lat, lon]);
+            }
+          }
         }
-      }
     } catch (error) {
-      console.error('Error fetching status:', error);
-      setIsConnected(false);
+        console.error('Error fetching status:', error);
+        setIsConnected(false);
     }
   };
 
   const fetchTelemetry = async () => {
     try {
-      const response = await fetch(`${API_BASE}/telemetry`);
-      const data = await response.json();
-      
-      setTelemetry(data);
-      
-      // Add to flight path if we have position data
-      if (data.position && data.position.lat !== 0 && data.position.lon !== 0) {
-        const newPoint: FlightPath = {
-          lat: data.position.lat,
-          lon: data.position.lon,
-          alt: data.position.alt,
-          timestamp: Date.now(),
-        };
+        const response = await fetch(`${API_BASE}/telemetry`);
+        const data = await response.json();
         
-        setFlightPath(prev => {
-          const updated = [...prev, newPoint];
-          // Keep only last 500 points
-          return updated.slice(-500);
-        });
+        setTelemetry(data);
         
-        // Update map center to follow drone
-        setMapCenter([data.position.lat, data.position.lon]);
-      }
+        // Add to flight path and update map only if position is valid
+        if (data.position) {
+          const { lat, lon, alt } = data.position;
+          
+          if (isValidCoordinate(lat, lon)) {
+            const newPoint: FlightPath = {
+              lat,
+              lon,
+              alt,
+              timestamp: Date.now(),
+            };
+            
+            setFlightPath(prev => {
+              const updated = [...prev, newPoint];
+              return updated.slice(-500);
+            });
+            
+            // Update map center to follow drone (only when flying)
+            if (status?.flying) {
+              setMapCenter([lat, lon]);
+            }
+          }
+        }
     } catch (error) {
-      console.error('Error fetching telemetry:', error);
+        console.error('Error fetching telemetry:', error);
     }
   };
 
@@ -313,23 +431,53 @@ const DroneFlightVisualization: React.FC = () => {
 
   const connectToSimulator = async () => {
     try {
-      const response = await fetch(`${API_BASE}/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        showToast('Connected to simulator', 'success');
-        await fetchStatus();
-      } else {
-        showToast('Failed to connect to simulator', 'error');
-      }
-    } catch (error) {
-      console.error('Error connecting:', error);
-      showToast('Connection error', 'error');
+        setLoading(prev => ({ ...prev, connect: true }));
+        showToast('Connecting to simulator...', 'info');
+        
+        const response = await fetch(`${API_BASE}/connect`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: 'Connection failed' }));
+          throw new Error(errorData.detail || 'Failed to connect');
+        }
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showToast('✅ Connected to PX4 SITL', 'success');
+          setIsConnected(true);
+          
+          await fetchStatus();
+          startTelemetryUpdates();
+        } else {
+          throw new Error(data.message || 'Connection failed');
+        }
+    } catch (error: any) {
+        console.error('❌ Connection error:', error);
+        showToast(
+          error.message || 'Failed to connect to simulator. Check if PX4 SITL is running.',
+          'error'
+        );
+        setIsConnected(false);
+    } finally {
+        setLoading(prev => ({ ...prev, connect: false }));
     }
+  };
+
+  const startTelemetryUpdates = () => {
+    if (telemetryInterval.current) {
+      clearInterval(telemetryInterval.current);
+    }
+    
+    telemetryInterval.current = setInterval(() => {
+      fetchStatus();
+      fetchTelemetry();
+    }, 500);
   };
 
   // ============================================================================
@@ -337,7 +485,6 @@ const DroneFlightVisualization: React.FC = () => {
   // ============================================================================
 
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
-    // Simple toast implementation - you can replace with your toast library
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.textContent = message;
@@ -364,14 +511,12 @@ const DroneFlightVisualization: React.FC = () => {
   // ============================================================================
 
   useEffect(() => {
-    // Initial fetch
     fetchStatus();
     
-    // Start polling
     telemetryInterval.current = setInterval(() => {
       fetchStatus();
       fetchTelemetry();
-    }, 1000); // Update every second
+    }, 1000);
     
     return () => {
       if (telemetryInterval.current) {
@@ -387,24 +532,22 @@ const DroneFlightVisualization: React.FC = () => {
   // RENDER HELPERS
   // ============================================================================
 
-  const dronePosition: [number, number] = status?.current_position && 
-    status.current_position.lat !== 0 && 
-    status.current_position.lon !== 0
-    ? [status.current_position.lat, status.current_position.lon]
-    : telemetry?.position && 
-      telemetry.position.lat !== 0 && 
-      telemetry.position.lon !== 0
-    ? [telemetry.position.lat, telemetry.position.lon]
-    : defaultPosition;
+  const dronePosition: [number, number] = getValidPosition(
+    telemetry?.position?.lat,
+    telemetry?.position?.lon,
+    status?.current_position?.lat,
+    status?.current_position?.lon
+  );
 
-  const homePosition: [number, number] = status?.home_position && 
-    status.home_position.lat !== 0 && 
-    status.home_position.lon !== 0
-    ? [status.home_position.lat, status.home_position.lon]
-    : defaultPosition;
+  const homePosition: [number, number] = getValidPosition(
+    undefined,
+    undefined,
+    status?.home_position?.lat,
+    status?.home_position?.lon
+  );
 
   const pathCoordinates: [number, number][] = flightPath
-    .filter(point => point.lat !== 0 && point.lon !== 0)
+    .filter(point => isValidCoordinate(point.lat, point.lon))
     .map(point => [point.lat, point.lon]);
 
   // ============================================================================
@@ -417,7 +560,24 @@ const DroneFlightVisualization: React.FC = () => {
       <div className="bg-gray-900 border-b border-gray-800 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-white">🚁 Drone Flight Monitor</h1>
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+                title="Back to Missions"
+              >
+                <ArrowLeft size={24} className="text-white" />
+              </button>
+            )}
+            <div>
+              <h1 className="text-2xl font-bold text-white">🚁 Drone Flight Monitor</h1>
+              {selectedMission && (
+                <p className="text-sm text-gray-400 mt-1">
+                  Mission: {selectedMission.name}
+                  {selectedMission.corridor && ` • ${selectedMission.corridor}`}
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
               <span className="text-sm text-gray-400">
@@ -429,9 +589,10 @@ const DroneFlightVisualization: React.FC = () => {
           {!isConnected && (
             <button
               onClick={connectToSimulator}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              disabled={loading.connect}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white rounded-lg transition-colors"
             >
-              Connect to Simulator
+              {loading.connect ? 'Connecting...' : 'Connect to Simulator'}
             </button>
           )}
         </div>
@@ -457,11 +618,50 @@ const DroneFlightVisualization: React.FC = () => {
             {pathCoordinates.length > 1 && (
               <Polyline
                 positions={pathCoordinates}
-                color="#3b82f6"
-                weight={2}
-                opacity={0.7}
-                dashArray="5, 10"
+                color="#22c55e"
+                weight={3}
+                opacity={0.6}
               />
+            )}
+
+            {/* Mission Waypoints */}
+            {selectedMission?.waypoints && selectedMission.waypoints.length > 0 && (
+              <>
+                {/* Waypoint Markers */}
+                {selectedMission.waypoints.map((wp, index) => (
+                  <Marker
+                    key={`wp-${index}`}
+                    position={[wp.lat, wp.lng]}
+                    icon={createWaypointIcon(index, status?.mission_current === index + 1)}
+                  >
+                    <Popup>
+                      <div className="text-xs">
+                        <strong>Waypoint {index + 1}</strong>
+                        {wp.name && <><br />{wp.name}</>}
+                        <br />
+                        Lat: {wp.lat.toFixed(6)}
+                        <br />
+                        Lon: {wp.lng.toFixed(6)}
+                        {wp.alt && (
+                          <>
+                            <br />
+                            Alt: {wp.alt} m
+                          </>
+                        )}
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+
+                {/* Waypoint Path */}
+                <Polyline
+                  positions={selectedMission.waypoints.map(wp => [wp.lat, wp.lng])}
+                  color="#3b82f6"
+                  weight={2}
+                  opacity={0.7}
+                  dashArray="5, 10"
+                />
+              </>
             )}
             
             {/* Home position */}
@@ -483,111 +683,130 @@ const DroneFlightVisualization: React.FC = () => {
             <h3 className="text-lg font-semibold text-white mb-3">Live Telemetry</h3>
             
             <div className="space-y-2 text-sm">
-              {/* Status Indicators */}
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400 w-20">Status:</span>
-                <div className="flex gap-2">
-                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                    status?.armed ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-400'
-                  }`}>
-                    {status?.armed ? 'ARMED' : 'DISARMED'}
-                  </span>
-                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                    status?.flying ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-400'
-                  }`}>
-                    {status?.flying ? 'FLYING' : 'LANDED'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Flight Mode */}
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400 w-20">Mode:</span>
-                <span className="text-blue-400 font-mono">{status?.flight_mode || 'N/A'}</span>
-              </div>
-
-              {/* Position */}
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400 w-20">Position:</span>
-                <div className="text-white font-mono text-xs">
-                  <div>Lat: {telemetry?.position?.lat.toFixed(6) || status?.current_position?.lat.toFixed(6) || 'N/A'}</div>
-                  <div>Lon: {telemetry?.position?.lon.toFixed(6) || status?.current_position?.lon.toFixed(6) || 'N/A'}</div>
-                  <div>Alt: {(telemetry?.position?.alt || status?.current_position?.alt || 0).toFixed(1)}m</div>
-                </div>
-              </div>
-
-              {/* Velocity */}
-              {telemetry?.velocity && (
+                {/* Status Indicators */}
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400 w-20">Velocity:</span>
-                  <div className="text-white font-mono text-xs">
-                    <div>X: {telemetry.velocity.vx.toFixed(2)} m/s</div>
-                    <div>Y: {telemetry.velocity.vy.toFixed(2)} m/s</div>
-                    <div>Z: {telemetry.velocity.vz.toFixed(2)} m/s</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Attitude */}
-              {telemetry?.attitude && (
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-400 w-20">Attitude:</span>
-                  <div className="text-white font-mono text-xs">
-                    <div>Roll: {(telemetry.attitude.roll * 180 / Math.PI).toFixed(1)}°</div>
-                    <div>Pitch: {(telemetry.attitude.pitch * 180 / Math.PI).toFixed(1)}°</div>
-                    <div>Yaw: {(telemetry.attitude.yaw * 180 / Math.PI).toFixed(1)}°</div>
-                  </div>
-                </div>
-              )}
-
-              {/* Battery */}
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400 w-20">Battery:</span>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 bg-gray-700 rounded-full h-2 overflow-hidden">
-                      <div
-                        className={`h-full transition-all duration-300 ${
-                          (telemetry?.battery?.remaining || status?.battery_level || 0) > 50
-                            ? 'bg-green-500'
-                            : (telemetry?.battery?.remaining || status?.battery_level || 0) > 20
-                            ? 'bg-yellow-500'
-                            : 'bg-red-500'
-                        }`}
-                        style={{ width: `${telemetry?.battery?.remaining || status?.battery_level || 0}%` }}
-                      />
-                    </div>
-                    <span className="text-white text-xs font-mono w-12">
-                      {(telemetry?.battery?.remaining || status?.battery_level || 0).toFixed(0)}%
+                  <span className="text-gray-400 w-20">Status:</span>
+                  <div className="flex gap-2">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      status?.armed ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-400'
+                    }`}>
+                      {status?.armed ? 'ARMED' : 'DISARMED'}
+                    </span>
+                    <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                      status?.flying ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-400'
+                    }`}>
+                      {status?.flying ? 'FLYING' : 'LANDED'}
                     </span>
                   </div>
-                  {telemetry?.battery && (
-                    <div className="text-gray-400 text-xs mt-1">
-                      {telemetry.battery.voltage.toFixed(2)}V | {telemetry.battery.current.toFixed(2)}A
+                </div>
+
+                {/* Flight Mode */}
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 w-20">Mode:</span>
+                  <span className="text-blue-400 font-mono">{status?.flight_mode ?? 'N/A'}</span>
+                </div>
+
+                {/* Position */}
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 w-20">Position:</span>
+                  <div className="text-white font-mono text-xs">
+                    <div>
+                      Lat: {
+                        telemetry?.position?.lat !== undefined 
+                        ? telemetry.position.lat.toFixed(6)
+                        : status?.current_position?.lat !== undefined
+                        ? status.current_position.lat.toFixed(6)
+                        : 'N/A'
+                      }
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* GPS */}
-              {telemetry?.gps && (
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-400 w-20">GPS:</span>
-                  <div className="text-white text-xs">
-                    {telemetry.gps.satellites} sats | Fix: {telemetry.gps.fix_type} | HDOP: {telemetry.gps.hdop.toFixed(2)}
+                    <div>
+                      Lon: {
+                        telemetry?.position?.lon !== undefined 
+                        ? telemetry.position.lon.toFixed(6)
+                        : status?.current_position?.lon !== undefined
+                        ? status.current_position.lon.toFixed(6)
+                        : 'N/A'
+                      }
+                    </div>
+                    <div>
+                      Alt: {
+                        (telemetry?.position?.alt !== undefined 
+                        ? telemetry.position.alt
+                        : status?.current_position?.alt !== undefined
+                        ? status.current_position.alt
+                        : 0
+                        ).toFixed(1)
+                      }m
+                    </div>
                   </div>
                 </div>
-              )}
 
-              {/* Mission Status */}
-              {status?.mission_active && (
+                {/* Velocity */}
+                {telemetry?.velocity && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 w-20">Velocity:</span>
+                    <div className="text-white font-mono text-xs">
+                      <div>X: {(telemetry.velocity.vx ?? 0).toFixed(2)} m/s</div>
+                      <div>Y: {(telemetry.velocity.vy ?? 0).toFixed(2)} m/s</div>
+                      <div>Z: {(telemetry.velocity.vz ?? 0).toFixed(2)} m/s</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Attitude */}
+                {telemetry?.attitude && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 w-20">Attitude:</span>
+                    <div className="text-white font-mono text-xs">
+                      <div>Roll: {((telemetry.attitude.roll ?? 0) * 180 / Math.PI).toFixed(1)}°</div>
+                      <div>Pitch: {((telemetry.attitude.pitch ?? 0) * 180 / Math.PI).toFixed(1)}°</div>
+                      <div>Yaw: {((telemetry.attitude.yaw ?? 0) * 180 / Math.PI).toFixed(1)}°</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Battery */}
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-400 w-20">Mission:</span>
-                  <div className="text-white text-xs">
-                    WP {status.mission_current}/{status.mission_count}
+                  <span className="text-gray-400 w-20">Battery:</span>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            (telemetry?.battery?.remaining ?? status?.battery_level ?? 0) > 50
+                            ? 'bg-green-500'
+                            : (telemetry?.battery?.remaining ?? status?.battery_level ?? 0) > 20
+                            ? 'bg-yellow-500'
+                            : 'bg-red-500'
+                          }`}
+                          style={{ 
+                            width: `${telemetry?.battery?.remaining ?? status?.battery_level ?? 0}%` 
+                          }}
+                        />
+                      </div>
+                      <span className="text-white font-bold min-w-[45px]">
+                        {(telemetry?.battery?.remaining ?? status?.battery_level ?? 0).toFixed(0)}%
+                      </span>
+                    </div>
+                    {telemetry?.battery && (
+                      <div className="text-xs text-gray-400 mt-1">
+                        {(telemetry.battery.voltage ?? 0).toFixed(2)}V / {(telemetry.battery.current ?? 0).toFixed(2)}A
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
+
+                {/* GPS */}
+                {telemetry?.gps && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 w-20">GPS:</span>
+                    <div className="text-white font-mono text-xs">
+                      <div>Sats: {telemetry.gps.satellites ?? 0}</div>
+                      <div>Fix: {telemetry.gps.fix_type ?? 0}</div>
+                      <div>HDOP: {(telemetry.gps.hdop ?? 0).toFixed(2)}</div>
+                    </div>
+                  </div>
+                )}
             </div>
           </div>
         </div>
@@ -595,6 +814,39 @@ const DroneFlightVisualization: React.FC = () => {
         {/* Control Panel */}
         <div className="w-96 bg-gray-900 border-l border-gray-800 p-6 overflow-y-auto">
           <h2 className="text-xl font-bold text-white mb-6">Mission Control</h2>
+
+          {/* Selected Mission Info */}
+          {selectedMission && (
+            <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+              <h3 className="text-sm font-bold text-blue-400 mb-2">SELECTED MISSION</h3>
+              <div className="text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">ID:</span>
+                  <span className="text-white font-mono">{selectedMission.id}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Name:</span>
+                  <span className="text-white">{selectedMission.name}</span>
+                </div>
+                {selectedMission.corridor && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Corridor:</span>
+                    <span className="text-white">{selectedMission.corridor}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Waypoints:</span>
+                  <span className="text-white">{selectedMission.waypoints.length}</span>
+                </div>
+                {selectedMission.distance && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Distance:</span>
+                    <span className="text-white">{selectedMission.distance.toFixed(2)} km</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Mission ID Input */}
           <div className="mb-6">

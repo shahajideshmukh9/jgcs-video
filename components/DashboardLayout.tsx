@@ -1,67 +1,73 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import Sidebar from './Sidebar'
-import DashboardAnalytics from './DashboardAnalytics'
-import MissionList from './MissionList'
-import MissionTypes from './MissionTypes'
+import MissionListComponent from './MissionList'
 import RoutePlanning from './RoutePlanning'
-import LiveMap from './LiveMap'
-import RolesPermissions from './RolesPermissions'
-import UserProfile from './UserProfile'
-import Settings from './Settings'
-import Guide from './Guide'
-import VehicleLibrary from './VehicleLibrary'
-import OperatorLibrary from './OperatorLibrary'
 import { ApiMission } from '@/services/missionService'
-import MissionExecutionView from '@/components/MissionExecutionView'
-import dynamic from 'next/dynamic';
+
+// Dynamically import components that use client-side only features
+const MissionTypes = dynamic(() => import('./MissionTypes'), { ssr: false })
+const DroneFlightVisualization = dynamic(() => import('./Droneflightvisualization'), { ssr: false })
+const LiveMap = dynamic(() => import('./LiveMap'), { ssr: false })
+const VehicleLibrary = dynamic(() => import('./VehicleLibrary'), { ssr: false })
+const OperatorLibrary = dynamic(() => import('./OperatorLibrary'), { ssr: false })
+const UserProfile = dynamic(() => import('./UserProfile'), { ssr: false })
+const Settings = dynamic(() => import('./Settings'), { ssr: false })
+const Guide = dynamic(() => import('./Guide'), { ssr: false })
 
 export default function DashboardLayout() {
-  const [currentPage, setCurrentPage] = useState<string>('dashboard')
+  const [currentPage, setCurrentPage] = useState('missions')
   const [selectedMission, setSelectedMission] = useState<ApiMission | null>(null)
   const [editMode, setEditMode] = useState(false)
 
-  const handleViewMission = (mission: ApiMission) => {
-    console.log('Viewing mission:', mission)
-    setSelectedMission(mission)
+  const handlePlanMission = () => {
+    setSelectedMission(null)
     setEditMode(false)
     setCurrentPage('plan-mission')
   }
 
   const handleEditMission = (mission: ApiMission) => {
-    console.log('Editing mission:', mission)
     setSelectedMission(mission)
     setEditMode(true)
     setCurrentPage('plan-mission')
   }
 
+  const handleViewMission = (mission: ApiMission) => {
+    setSelectedMission(mission)
+    setEditMode(false)
+    setCurrentPage('plan-mission')
+  }
+
+  // NEW: Handle visualization of mission on flight monitor
+  const handleVisualizeMission = (mission: ApiMission) => {
+    setSelectedMission(mission)
+    setCurrentPage('flight-monitor')
+  }
+
   const handleMissionSaved = () => {
+    setCurrentPage('missions')
     setSelectedMission(null)
     setEditMode(false)
-    setCurrentPage('missions')
   }
 
   const handleBackToMissions = () => {
+    setCurrentPage('missions')
     setSelectedMission(null)
     setEditMode(false)
-    setCurrentPage('missions')
   }
 
-  const DroneFlightVisualization = dynamic(
-    () => import('./Droneflightvisualization'),
-    { ssr: false }
-  );
-
   return (
-    <div className="flex min-h-screen bg-slate-900">
+    <div className="flex h-screen bg-gray-950">
       <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
-      {currentPage === 'dashboard' && <DashboardAnalytics />}
+      
       {currentPage === 'missions' && (
-        <MissionList 
-          onPageChange={setCurrentPage}
+        <MissionListComponent 
+          onPageChange={setCurrentPage} 
           onViewMission={handleViewMission}
           onEditMission={handleEditMission}
+          onVisualizeMission={handleVisualizeMission}
         />
       )}
       {currentPage === 'plan-mission' && (
@@ -73,13 +79,24 @@ export default function DashboardLayout() {
         />
       )}
       {currentPage === 'mission-types' && <MissionTypes onPageChange={setCurrentPage} />}
-      {currentPage === 'execute-mission' && (
-        <MissionExecutionView 
-          missionId="MISSION-2024-001"
-          onBack={() => setCurrentPage('missions')}
+      {currentPage === 'flight-monitor' && (
+        <DroneFlightVisualization 
+          selectedMission={selectedMission ? {
+            id: selectedMission.id,
+            name: selectedMission.name,
+            waypoints: selectedMission.waypoints.map(wp => ({
+              lat: wp.lat,
+              lng: wp.lng,
+              alt: wp.alt,
+              name: wp.name
+            })),
+            corridor: selectedMission.corridor,
+            distance: selectedMission.distance,
+            status: selectedMission.status
+          } : null}
+          onBack={handleBackToMissions}
         />
       )}
-      {currentPage === 'flight-monitor' && <DroneFlightVisualization />}
       {currentPage === 'awareness' && <LiveMap />}
       {currentPage === 'vehicles' && <VehicleLibrary />}
       {currentPage === 'operators' && <OperatorLibrary />}

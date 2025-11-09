@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Search, Plus, AlertTriangle, Trash2, Edit, Eye, Loader2, RefreshCw, Filter, Play, Pause, CheckCircle } from 'lucide-react'
+import { Search, Plus, AlertTriangle, Trash2, Edit, Eye, Loader2, RefreshCw, Filter, Play, Pause, CheckCircle, Plane } from 'lucide-react'
+import { usePX4Upload } from '@/hooks/usePX4Upload'
+import { Toaster } from 'react-hot-toast'
 import { 
   getMissions, 
   deleteMission, 
@@ -16,9 +18,15 @@ interface MissionListComponentProps {
   onPageChange?: (page: string) => void
   onEditMission?: (mission: ApiMission) => void
   onViewMission?: (mission: ApiMission) => void
+  onVisualizeMission?: (mission: ApiMission) => void  // 🆕 NEW
 }
 
-export default function MissionListComponent({ onPageChange, onEditMission, onViewMission }: MissionListComponentProps) {
+export default function MissionListComponent({ 
+  onPageChange, 
+  onEditMission, 
+  onViewMission,
+  onVisualizeMission  // 🆕 NEW
+}: MissionListComponentProps) {
   // State management
   const [missions, setMissions] = useState<ApiMission[]>([])
   const [loading, setLoading] = useState(true)
@@ -29,6 +37,9 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
   const [currentPage, setCurrentPage] = useState(1)
   const [refreshing, setRefreshing] = useState(false)
   const itemsPerPage = 10
+
+  // Use the hook
+  const { uploadMissionToPX4, uploading } = usePX4Upload()
 
   // Load missions on component mount and when filters change
   useEffect(() => {
@@ -105,7 +116,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
     }
   }
 
-  // 🆕 NEW: Handle starting a mission
+  // Handle starting a mission
   const handleStartMission = async (mission: ApiMission) => {
     const confirmStart = confirm(
       `Start mission "${mission.mission_name}"?\n\n` +
@@ -126,7 +137,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
     }
   }
 
-  // 🆕 NEW: Handle pausing a mission
+  // Handle pausing a mission
   const handlePauseMission = async (mission: ApiMission) => {
     if (!confirm(`Pause mission "${mission.mission_name}"?`)) return
 
@@ -139,7 +150,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
     }
   }
 
-  // 🆕 NEW: Handle completing a mission
+  // Handle completing a mission
   const handleCompleteMission = async (mission: ApiMission) => {
     if (!confirm(`Mark mission "${mission.mission_name}" as completed?`)) return
 
@@ -170,6 +181,13 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
     }
   }
 
+  // 🆕 NEW: Handle visualizing mission on flight monitor
+  const handleVisualizeMission = (mission: ApiMission) => {
+    if (onVisualizeMission) {
+      onVisualizeMission(mission)
+    }
+  }
+
   // Status color mapping
   const getStatusColor = (status: string): string => {
     const statusLower = status.toLowerCase()
@@ -187,7 +205,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
     }
   }
 
-  // ✅ ENHANCED: Mission type color mapping with more types
+  // Mission type color mapping with more types
   const getTypeColor = (type: string | null): string => {
     if (!type) return 'bg-gray-600'
     const typeLower = type.toLowerCase()
@@ -237,7 +255,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
     }
   }
 
-  // ✅ NEW: Convert corridor color name to Tailwind class
+  // Convert corridor color name to Tailwind class
   const getCorridorBgColor = (color: string | null): string => {
     if (!color) return 'bg-gray-500'
     const colorLower = color.toLowerCase()
@@ -447,7 +465,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
                         <td className="px-6 py-4">
                           <div className="text-white font-medium">{mission.mission_name}</div>
                         </td>
-                        {/* ✅ ENHANCED: Mission Type with gradient background */}
+                        {/* Mission Type with gradient background */}
                         <td className="px-6 py-4">
                           {mission.mission_type ? (
                             <span className={`${getTypeColor(mission.mission_type)} px-3 py-1.5 rounded-full text-white text-xs font-semibold inline-block shadow-md`}>
@@ -459,7 +477,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
                             </span>
                           )}
                         </td>
-                        {/* ✅ ENHANCED: Corridor with color indicator */}
+                        {/* Corridor with color indicator */}
                         <td className="px-6 py-4">
                           <div>
                             {mission.corridor_label ? (
@@ -505,7 +523,17 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center space-x-2">
-                            {/* 🆕 START BUTTON - Show for pending/draft missions */}
+                            {/* PX4 UPLOAD BUTTON */}
+                            <button
+                              onClick={() => uploadMissionToPX4(mission)}
+                              disabled={uploading === mission.id}
+                              className="px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white text-xs font-semibold rounded transition-colors"
+                              title="Upload to PX4"
+                            >
+                              {uploading === mission.id ? 'Uploading...' : '📤 PX4'}
+                            </button>
+                            
+                            {/* START BUTTON - Show for pending/draft missions */}
                             {(mission.status?.toLowerCase() === 'pending' || mission.status?.toLowerCase() === 'draft') && (
                               <button
                                 onClick={() => handleStartMission(mission)}
@@ -519,7 +547,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
                               </button>
                             )}
                             
-                            {/* 🆕 PAUSE BUTTON - Show for active missions */}
+                            {/* PAUSE BUTTON - Show for active missions */}
                             {(mission.status?.toLowerCase() === 'active' || mission.status?.toLowerCase() === 'in_progress') && (
                               <button
                                 onClick={() => handlePauseMission(mission)}
@@ -533,7 +561,7 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
                               </button>
                             )}
                             
-                            {/* 🆕 COMPLETE BUTTON - Show for active/paused missions */}
+                            {/* COMPLETE BUTTON - Show for active/paused missions */}
                             {(mission.status?.toLowerCase() === 'active' || 
                               mission.status?.toLowerCase() === 'in_progress' || 
                               mission.status?.toLowerCase() === 'paused') && (
@@ -548,6 +576,18 @@ export default function MissionListComponent({ onPageChange, onEditMission, onVi
                                 </span>
                               </button>
                             )}
+
+                            {/* 🆕 VISUALIZE BUTTON - Always visible - NEW */}
+                            <button
+                              onClick={() => handleVisualizeMission(mission)}
+                              className="p-2 text-purple-400 hover:bg-slate-600 rounded transition-colors group relative"
+                              title="Visualize on Flight Monitor"
+                            >
+                              <Plane size={18} />
+                              <span className="absolute hidden group-hover:block bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-xs text-white rounded whitespace-nowrap z-10">
+                                Flight Monitor
+                              </span>
+                            </button>
 
                             {/* VIEW BUTTON - Always visible */}
                             <button
