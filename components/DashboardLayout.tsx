@@ -15,6 +15,7 @@ import VehicleLibrary from './VehicleLibrary'
 import OperatorLibrary from './OperatorLibrary'
 import { ApiMission } from '@/services/missionService'
 import MissionExecutionView from '@/components/MissionExecutionView'
+import dynamic from 'next/dynamic';
 
 export default function DashboardLayout() {
   const [currentPage, setCurrentPage] = useState<string>('dashboard')
@@ -47,6 +48,11 @@ export default function DashboardLayout() {
     setCurrentPage('missions')
   }
 
+  const DroneFlightVisualization = dynamic(
+    () => import('./Droneflightvisualization'),
+    { ssr: false }
+  );
+
   return (
     <div className="flex min-h-screen bg-slate-900">
       <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
@@ -73,6 +79,7 @@ export default function DashboardLayout() {
           onBack={() => setCurrentPage('missions')}
         />
       )}
+      {currentPage === 'flight-monitor' && <DroneFlightVisualization />}
       {currentPage === 'awareness' && <LiveMap />}
       {currentPage === 'vehicles' && <VehicleLibrary />}
       {currentPage === 'operators' && <OperatorLibrary />}

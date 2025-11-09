@@ -1,0 +1,825 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, Marker, Polyline, useMap } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// ============================================================================
+// TYPES & INTERFACES
+// ============================================================================
+
+interface TelemetryData {
+  position?: {
+    lat: number;
+    lon: number;
+    alt: number;
+  };
+  velocity?: {
+    vx: number;
+    vy: number;
+    vz: number;
+  };
+  attitude?: {
+    roll: number;
+    pitch: number;
+    yaw: number;
+  };
+  battery?: {
+    voltage: number;
+    current: number;
+    remaining: number;
+  };
+  gps?: {
+    satellites: number;
+    fix_type: number;
+    hdop: number;
+  };
+}
+
+interface DroneStatus {
+  connected: boolean;
+  armed: boolean;
+  flying: boolean;
+  current_position: {
+    lat: number;
+    lon: number;
+    alt: number;
+  };
+  home_position: {
+    lat: number;
+    lon: number;
+    alt: number;
+  };
+  battery_level: number;
+  flight_mode: string;
+  mission_active: boolean;
+  mission_current: number;
+  mission_count: number;
+}
+
+interface FlightPath {
+  lat: number;
+  lon: number;
+  alt: number;
+  timestamp: number;
+}
+
+// ============================================================================
+// MAP UPDATE COMPONENT
+// ============================================================================
+
+const MapUpdater: React.FC<{ center: [number, number]; zoom: number }> = ({ center, zoom }) => {
+  const map = useMap();
+  
+  useEffect(() => {
+    map.setView(center, zoom);
+  }, [center, zoom, map]);
+  
+  return null;
+};
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
+const DroneFlightVisualization: React.FC = () => {
+  const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
+  const [status, setStatus] = useState<DroneStatus | null>(null);
+  const [flightPath, setFlightPath] = useState<FlightPath[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const [currentMissionId, setCurrentMissionId] = useState<string>('MISSION-001');
+  const [takeoffAltitude, setTakeoffAltitude] = useState<number>(10);
+  const [loading, setLoading] = useState<{[key: string]: boolean}>({});
+  
+  const telemetryInterval = useRef<NodeJS.Timeout | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  
+  // Default position (Nagpur, India)
+  const defaultPosition: [number, number] = [21.1458, 79.0882];
+  const [mapCenter, setMapCenter] = useState<[number, number]>(defaultPosition);
+  const [mapZoom, setMapZoom] = useState(15);
+
+  // ============================================================================
+  // CUSTOM DRONE ICON
+  // ============================================================================
+
+  const createDroneIcon = (armed: boolean, flying: boolean, yaw: number = 0) => {
+    const color = flying ? '#22c55e' : armed ? '#eab308' : '#3b82f6';
+    const size = flying ? 40 : 32;
+    
+    return L.divIcon({
+      className: 'custom-drone-icon',
+      html: `
+        <div style="
+          transform: rotate(${yaw}deg);
+          width: ${size}px;
+          height: ${size}px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">
+          <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Drone body -->
+            <circle cx="12" cy="12" r="3" fill="${color}" stroke="white" stroke-width="1"/>
+            
+            <!-- Propeller arms -->
+            <line x1="12" y1="12" x2="6" y2="6" stroke="${color}" stroke-width="2"/>
+            <line x1="12" y1="12" x2="18" y2="6" stroke="${color}" stroke-width="2"/>
+            <line x1="12" y1="12" x2="6" y2="18" stroke="${color}" stroke-width="2"/>
+            <line x1="12" y1="12" x2="18" y2="18" stroke="${color}" stroke-width="2"/>
+            
+            <!-- Propellers -->
+            <circle cx="6" cy="6" r="2.5" fill="${color}" opacity="0.6"/>
+            <circle cx="18" cy="6" r="2.5" fill="${color}" opacity="0.6"/>
+            <circle cx="6" cy="18" r="2.5" fill="${color}" opacity="0.6"/>
+            <circle cx="18" cy="18" r="2.5" fill="${color}" opacity="0.6"/>
+            
+            <!-- Direction indicator (front) -->
+            <path d="M 12 9 L 14 7 L 12 5 L 10 7 Z" fill="white"/>
+          </svg>
+        </div>
+      `,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+    });
+  };
+
+  const createHomeIcon = () => {
+    return L.divIcon({
+      className: 'custom-home-icon',
+      html: `
+        <div style="
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 12L12 3L21 12H19V20H14V15H10V20H5V12H3Z" fill="#ef4444" stroke="white" stroke-width="1.5"/>
+            <circle cx="12" cy="10" r="2" fill="white"/>
+          </svg>
+        </div>
+      `,
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+    });
+  };
+
+  // ============================================================================
+  // API FUNCTIONS
+  // ============================================================================
+
+  const fetchStatus = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/status`);
+      const data = await response.json();
+      
+      if (data.success || data.data) {
+        const statusData = data.data || data;
+        setStatus(statusData);
+        setIsConnected(statusData.connected);
+        
+        // Update map center if we have a valid position
+        if (statusData.current_position && 
+            statusData.current_position.lat !== 0 && 
+            statusData.current_position.lon !== 0) {
+          setMapCenter([statusData.current_position.lat, statusData.current_position.lon]);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching status:', error);
+      setIsConnected(false);
+    }
+  };
+
+  const fetchTelemetry = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/telemetry`);
+      const data = await response.json();
+      
+      setTelemetry(data);
+      
+      // Add to flight path if we have position data
+      if (data.position && data.position.lat !== 0 && data.position.lon !== 0) {
+        const newPoint: FlightPath = {
+          lat: data.position.lat,
+          lon: data.position.lon,
+          alt: data.position.alt,
+          timestamp: Date.now(),
+        };
+        
+        setFlightPath(prev => {
+          const updated = [...prev, newPoint];
+          // Keep only last 500 points
+          return updated.slice(-500);
+        });
+        
+        // Update map center to follow drone
+        setMapCenter([data.position.lat, data.position.lon]);
+      }
+    } catch (error) {
+      console.error('Error fetching telemetry:', error);
+    }
+  };
+
+  const handleCommand = async (
+    endpoint: string,
+    body: any,
+    loadingKey: string,
+    successMessage: string
+  ) => {
+    setLoading(prev => ({ ...prev, [loadingKey]: true }));
+    
+    try {
+      const response = await fetch(`${API_BASE}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast(successMessage, 'success');
+        await fetchStatus();
+      } else {
+        showToast(data.message || 'Command failed', 'error');
+      }
+    } catch (error) {
+      console.error(`Error executing ${loadingKey}:`, error);
+      showToast(`Failed to ${loadingKey}`, 'error');
+    } finally {
+      setLoading(prev => ({ ...prev, [loadingKey]: false }));
+    }
+  };
+
+  const handleStartMission = () => {
+    handleCommand(
+      `/api/v1/missions/${currentMissionId}/start`,
+      { force_start: false },
+      'start',
+      'Mission started successfully'
+    );
+  };
+
+  const handleArm = () => {
+    handleCommand(
+      '/api/v1/vehicle/arm',
+      { mission_id: currentMissionId, force_arm: false },
+      'arm',
+      'Vehicle armed successfully'
+    );
+  };
+
+  const handleDisarm = () => {
+    handleCommand(
+      '/api/v1/vehicle/disarm',
+      { mission_id: currentMissionId },
+      'disarm',
+      'Vehicle disarmed successfully'
+    );
+  };
+
+  const handleTakeoff = () => {
+    handleCommand(
+      '/api/v1/vehicle/takeoff',
+      { mission_id: currentMissionId, altitude: takeoffAltitude },
+      'takeoff',
+      `Takeoff initiated to ${takeoffAltitude}m`
+    );
+  };
+
+  const handleLand = () => {
+    handleCommand(
+      '/api/v1/vehicle/land',
+      { mission_id: currentMissionId },
+      'land',
+      'Landing initiated'
+    );
+  };
+
+  const handleRTL = () => {
+    handleCommand(
+      '/api/v1/vehicle/rtl',
+      { mission_id: currentMissionId },
+      'rtl',
+      'Return to launch initiated'
+    );
+  };
+
+  const connectToSimulator = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast('Connected to simulator', 'success');
+        await fetchStatus();
+      } else {
+        showToast('Failed to connect to simulator', 'error');
+      }
+    } catch (error) {
+      console.error('Error connecting:', error);
+      showToast('Connection error', 'error');
+    }
+  };
+
+  // ============================================================================
+  // TOAST NOTIFICATION
+  // ============================================================================
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    // Simple toast implementation - you can replace with your toast library
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 24px;
+      background: ${type === 'success' ? '#22c55e' : type === 'error' ? '#ef4444' : '#3b82f6'};
+      color: white;
+      border-radius: 8px;
+      z-index: 10000;
+      animation: slideIn 0.3s ease;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease';
+      setTimeout(() => document.body.removeChild(toast), 300);
+    }, 3000);
+  };
+
+  // ============================================================================
+  // LIFECYCLE
+  // ============================================================================
+
+  useEffect(() => {
+    // Initial fetch
+    fetchStatus();
+    
+    // Start polling
+    telemetryInterval.current = setInterval(() => {
+      fetchStatus();
+      fetchTelemetry();
+    }, 1000); // Update every second
+    
+    return () => {
+      if (telemetryInterval.current) {
+        clearInterval(telemetryInterval.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
+
+  // ============================================================================
+  // RENDER HELPERS
+  // ============================================================================
+
+  const dronePosition: [number, number] = status?.current_position && 
+    status.current_position.lat !== 0 && 
+    status.current_position.lon !== 0
+    ? [status.current_position.lat, status.current_position.lon]
+    : telemetry?.position && 
+      telemetry.position.lat !== 0 && 
+      telemetry.position.lon !== 0
+    ? [telemetry.position.lat, telemetry.position.lon]
+    : defaultPosition;
+
+  const homePosition: [number, number] = status?.home_position && 
+    status.home_position.lat !== 0 && 
+    status.home_position.lon !== 0
+    ? [status.home_position.lat, status.home_position.lon]
+    : defaultPosition;
+
+  const pathCoordinates: [number, number][] = flightPath
+    .filter(point => point.lat !== 0 && point.lon !== 0)
+    .map(point => [point.lat, point.lon]);
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-950">
+      {/* Header */}
+      <div className="bg-gray-900 border-b border-gray-800 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-white">🚁 Drone Flight Monitor</h1>
+            <div className="flex items-center gap-2">
+              <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+              <span className="text-sm text-gray-400">
+                {isConnected ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+          </div>
+          
+          {!isConnected && (
+            <button
+              onClick={connectToSimulator}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              Connect to Simulator
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Map Section */}
+        <div className="flex-1 relative">
+          <MapContainer
+            center={mapCenter}
+            zoom={mapZoom}
+            style={{ height: '100%', width: '100%' }}
+            zoomControl={true}
+          >
+            <MapUpdater center={mapCenter} zoom={mapZoom} />
+            
+            <TileLayer
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              attribution='&copy; <a href="https://www.esri.com/">Esri</a>'
+            />
+            
+            {/* Flight path */}
+            {pathCoordinates.length > 1 && (
+              <Polyline
+                positions={pathCoordinates}
+                color="#3b82f6"
+                weight={2}
+                opacity={0.7}
+                dashArray="5, 10"
+              />
+            )}
+            
+            {/* Home position */}
+            <Marker position={homePosition} icon={createHomeIcon()} />
+            
+            {/* Drone position */}
+            <Marker
+              position={dronePosition}
+              icon={createDroneIcon(
+                status?.armed || false,
+                status?.flying || false,
+                telemetry?.attitude?.yaw || 0
+              )}
+            />
+          </MapContainer>
+
+          {/* Map overlay - Telemetry display */}
+          <div className="absolute top-4 left-4 bg-gray-900/95 backdrop-blur-sm rounded-lg p-4 border border-gray-700 min-w-[300px] z-[1000]">
+            <h3 className="text-lg font-semibold text-white mb-3">Live Telemetry</h3>
+            
+            <div className="space-y-2 text-sm">
+              {/* Status Indicators */}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 w-20">Status:</span>
+                <div className="flex gap-2">
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                    status?.armed ? 'bg-yellow-600 text-white' : 'bg-gray-700 text-gray-400'
+                  }`}>
+                    {status?.armed ? 'ARMED' : 'DISARMED'}
+                  </span>
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                    status?.flying ? 'bg-green-600 text-white' : 'bg-gray-700 text-gray-400'
+                  }`}>
+                    {status?.flying ? 'FLYING' : 'LANDED'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Flight Mode */}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 w-20">Mode:</span>
+                <span className="text-blue-400 font-mono">{status?.flight_mode || 'N/A'}</span>
+              </div>
+
+              {/* Position */}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 w-20">Position:</span>
+                <div className="text-white font-mono text-xs">
+                  <div>Lat: {telemetry?.position?.lat.toFixed(6) || status?.current_position?.lat.toFixed(6) || 'N/A'}</div>
+                  <div>Lon: {telemetry?.position?.lon.toFixed(6) || status?.current_position?.lon.toFixed(6) || 'N/A'}</div>
+                  <div>Alt: {(telemetry?.position?.alt || status?.current_position?.alt || 0).toFixed(1)}m</div>
+                </div>
+              </div>
+
+              {/* Velocity */}
+              {telemetry?.velocity && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 w-20">Velocity:</span>
+                  <div className="text-white font-mono text-xs">
+                    <div>X: {telemetry.velocity.vx.toFixed(2)} m/s</div>
+                    <div>Y: {telemetry.velocity.vy.toFixed(2)} m/s</div>
+                    <div>Z: {telemetry.velocity.vz.toFixed(2)} m/s</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Attitude */}
+              {telemetry?.attitude && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 w-20">Attitude:</span>
+                  <div className="text-white font-mono text-xs">
+                    <div>Roll: {(telemetry.attitude.roll * 180 / Math.PI).toFixed(1)}°</div>
+                    <div>Pitch: {(telemetry.attitude.pitch * 180 / Math.PI).toFixed(1)}°</div>
+                    <div>Yaw: {(telemetry.attitude.yaw * 180 / Math.PI).toFixed(1)}°</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Battery */}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 w-20">Battery:</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          (telemetry?.battery?.remaining || status?.battery_level || 0) > 50
+                            ? 'bg-green-500'
+                            : (telemetry?.battery?.remaining || status?.battery_level || 0) > 20
+                            ? 'bg-yellow-500'
+                            : 'bg-red-500'
+                        }`}
+                        style={{ width: `${telemetry?.battery?.remaining || status?.battery_level || 0}%` }}
+                      />
+                    </div>
+                    <span className="text-white text-xs font-mono w-12">
+                      {(telemetry?.battery?.remaining || status?.battery_level || 0).toFixed(0)}%
+                    </span>
+                  </div>
+                  {telemetry?.battery && (
+                    <div className="text-gray-400 text-xs mt-1">
+                      {telemetry.battery.voltage.toFixed(2)}V | {telemetry.battery.current.toFixed(2)}A
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* GPS */}
+              {telemetry?.gps && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 w-20">GPS:</span>
+                  <div className="text-white text-xs">
+                    {telemetry.gps.satellites} sats | Fix: {telemetry.gps.fix_type} | HDOP: {telemetry.gps.hdop.toFixed(2)}
+                  </div>
+                </div>
+              )}
+
+              {/* Mission Status */}
+              {status?.mission_active && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 w-20">Mission:</span>
+                  <div className="text-white text-xs">
+                    WP {status.mission_current}/{status.mission_count}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Control Panel */}
+        <div className="w-96 bg-gray-900 border-l border-gray-800 p-6 overflow-y-auto">
+          <h2 className="text-xl font-bold text-white mb-6">Mission Control</h2>
+
+          {/* Mission ID Input */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Mission ID
+            </label>
+            <input
+              type="text"
+              value={currentMissionId}
+              onChange={(e) => setCurrentMissionId(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              placeholder="Enter mission ID"
+            />
+          </div>
+
+          {/* Takeoff Altitude */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Takeoff Altitude (m)
+            </label>
+            <input
+              type="number"
+              value={takeoffAltitude}
+              onChange={(e) => setTakeoffAltitude(Number(e.target.value))}
+              min="1"
+              max="100"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          {/* Mission Control Buttons */}
+          <div className="space-y-3">
+            {/* Start Mission */}
+            <button
+              onClick={handleStartMission}
+              disabled={!isConnected || loading.start}
+              className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {loading.start ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <span>▶️</span>
+                  Start Mission
+                </>
+              )}
+            </button>
+
+            {/* Arm */}
+            <button
+              onClick={handleArm}
+              disabled={!isConnected || status?.armed || loading.arm}
+              className="w-full px-4 py-3 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {loading.arm ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Arming...
+                </>
+              ) : (
+                <>
+                  <span>🔓</span>
+                  Arm Vehicle
+                </>
+              )}
+            </button>
+
+            {/* Disarm */}
+            <button
+              onClick={handleDisarm}
+              disabled={!isConnected || !status?.armed || loading.disarm}
+              className="w-full px-4 py-3 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {loading.disarm ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Disarming...
+                </>
+              ) : (
+                <>
+                  <span>🔒</span>
+                  Disarm Vehicle
+                </>
+              )}
+            </button>
+
+            {/* Takeoff */}
+            <button
+              onClick={handleTakeoff}
+              disabled={!isConnected || !status?.armed || status?.flying || loading.takeoff}
+              className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {loading.takeoff ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Taking Off...
+                </>
+              ) : (
+                <>
+                  <span>🚀</span>
+                  Takeoff
+                </>
+              )}
+            </button>
+
+            {/* Land */}
+            <button
+              onClick={handleLand}
+              disabled={!isConnected || !status?.flying || loading.land}
+              className="w-full px-4 py-3 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {loading.land ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Landing...
+                </>
+              ) : (
+                <>
+                  <span>⬇️</span>
+                  Land
+                </>
+              )}
+            </button>
+
+            {/* Return to Launch */}
+            <button
+              onClick={handleRTL}
+              disabled={!isConnected || !status?.flying || loading.rtl}
+              className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+            >
+              {loading.rtl ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Returning...
+                </>
+              ) : (
+                <>
+                  <span>🏠</span>
+                  Return to Launch
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Status Summary */}
+          <div className="mt-6 p-4 bg-gray-800 rounded-lg border border-gray-700">
+            <h3 className="text-sm font-semibold text-white mb-3">System Status</h3>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-gray-400">Connected:</span>
+                <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
+                  {isConnected ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Armed:</span>
+                <span className={status?.armed ? 'text-yellow-400' : 'text-gray-500'}>
+                  {status?.armed ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Flying:</span>
+                <span className={status?.flying ? 'text-green-400' : 'text-gray-500'}>
+                  {status?.flying ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Mission Active:</span>
+                <span className={status?.mission_active ? 'text-blue-400' : 'text-gray-500'}>
+                  {status?.mission_active ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Flight Path Points:</span>
+                <span className="text-white">{flightPath.length}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Stats */}
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
+              <div className="text-xs text-gray-400 mb-1">Altitude</div>
+              <div className="text-lg font-bold text-white">
+                {(telemetry?.position?.alt || status?.current_position?.alt || 0).toFixed(1)}m
+              </div>
+            </div>
+            <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
+              <div className="text-xs text-gray-400 mb-1">Battery</div>
+              <div className="text-lg font-bold text-white">
+                {(telemetry?.battery?.remaining || status?.battery_level || 0).toFixed(0)}%
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style jsx global>{`
+        @keyframes slideIn {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        
+        @keyframes slideOut {
+          from {
+            transform: translateX(0);
+            opacity: 1;
+          }
+          to {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default DroneFlightVisualization;

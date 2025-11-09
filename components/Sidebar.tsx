@@ -15,6 +15,7 @@ export default function Sidebar({ currentPage, onPageChange }: SidebarProps) {
     { id: 'missions', label: 'Missions', icon: Target },
     { id: 'plan-mission', label: 'Plan Mission', icon: CheckCircle, indent: true },
     { id: 'execute-mission', label: 'Execute Mission', icon: CheckCircle, indent: true },
+    { id: 'flight-monitor', label: 'Mission Monitor', icon: CheckCircle, indent: true },
     { id: 'vehicles', label: 'Vehicle Library', icon: Package },
     { id: 'operators', label: 'Operator Library', icon: User }
   ]
