@@ -55,23 +55,6 @@ export const TelemetryDisplay: React.FC<TelemetryDisplayProps> = ({
       <div className="sticky top-0 bg-gray-900 p-4 border-b border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold text-white">Live Telemetry</h3>
-          <div className="flex items-center gap-2">
-            {/* Connection Status */}
-            <span className={`text-xs flex items-center gap-1 ${
-              status?.connected ? 'text-green-400' : 'text-red-400'
-            }`}>
-              <span className={`w-2 h-2 rounded-full ${
-                status?.connected ? 'bg-green-400 animate-pulse' : 'bg-red-400'
-              }`}></span>
-              {status?.connected ? 'Connected' : 'Disconnected'}
-            </span>
-            {wsConnected && (
-              <span className="text-xs text-blue-400 flex items-center gap-1">
-                <span className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></span>
-                WebSocket
-              </span>
-            )}
-          </div>
         </div>
         
         {/* Real-time Update Stats */}

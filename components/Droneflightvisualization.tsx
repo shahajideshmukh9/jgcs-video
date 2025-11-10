@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Upload } from 'lucide-react';
 import TelemetryDisplay from '@/components/TelemetryDisplay';
 
 // Fix Leaflet default icon issue
@@ -141,6 +141,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   );
   const [takeoffAltitude, setTakeoffAltitude] = useState<number>(10);
   const [loading, setLoading] = useState<{[key: string]: boolean}>({});
+  const [missionUploaded, setMissionUploaded] = useState<boolean>(false);
   
   const telemetryInterval = useRef<NodeJS.Timeout | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -149,6 +150,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   const maxReconnectAttempts = 5;
   
   const API_BASE = process.env.NEXT_PUBLIC_DRONE_API_URL || 'http://localhost:7000';
+  const MISSION_API_BASE = process.env.NEXT_PUBLIC_MISSION_API_URL || 'http://localhost:8000';
   const WS_BASE = process.env.NEXT_PUBLIC_DRONE_WS_URL || 'ws://localhost:7000';
   
   // ============================================================================
@@ -447,12 +449,231 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     }
   };
 
+  const handleUploadMission = async () => {
+    if (!currentMissionId) {
+      showToast('Please select a mission first', 'error');
+      return;
+    }
+
+    if (!isConnected) {
+      showToast('Please connect to simulator first', 'error');
+      return;
+    }
+
+    setLoading(prev => ({ ...prev, upload: true }));
+    showToast('📤 Uploading mission to PX4 SITL...', 'info');
+
+    try {
+      // Get mission waypoints from selectedMission
+      console.log('📍 Selected Mission:', {
+        id: selectedMission?.id,
+        name: selectedMission?.name,
+        waypoint_count: selectedMission?.waypoints?.length,
+        raw_waypoints: selectedMission?.waypoints
+      });
+
+      console.log('🔍 First waypoint detailed inspection:', {
+        waypoint: selectedMission?.waypoints?.[0],
+        keys: selectedMission?.waypoints?.[0] ? Object.keys(selectedMission.waypoints[0]) : [],
+        lat_value: selectedMission?.waypoints?.[0]?.lat,
+        lon_value: selectedMission?.waypoints?.[0]?.lon,
+        lng_value: selectedMission?.waypoints?.[0]?.lng,
+        alt_value: selectedMission?.waypoints?.[0]?.alt,
+        lat_type: typeof selectedMission?.waypoints?.[0]?.lat,
+        lon_type: typeof selectedMission?.waypoints?.[0]?.lon,
+        lng_type: typeof selectedMission?.waypoints?.[0]?.lng,
+        alt_type: typeof selectedMission?.waypoints?.[0]?.alt
+      });
+
+      if (!selectedMission?.waypoints || selectedMission.waypoints.length === 0) {
+        throw new Error('No waypoints in selected mission');
+      }
+
+      // Format waypoints for backend - must be List[Dict[str, float]]
+      const waypoints = selectedMission.waypoints.map((wp, index) => {
+        console.log(`\n🔍 Processing waypoint ${index}:`, {
+          raw_object: wp,
+          all_keys: Object.keys(wp),
+          lat: wp.lat,
+          lon: wp.lon,
+          lng: wp.lng,
+          alt: wp.alt
+        });
+
+        const lng = getWaypointLongitude(wp);
+        
+        console.log(`Waypoint ${index} after getWaypointLongitude:`, {
+          original: wp,
+          lat: wp.lat,
+          lng: lng,
+          alt: wp.alt,
+          lat_type: typeof wp.lat,
+          lng_type: typeof lng,
+          alt_type: typeof wp.alt
+        });
+
+        if (wp.lat === undefined || wp.lat === null || lng === undefined || lng === null) {
+          console.error(`❌ Missing coordinates at waypoint ${index}:`, {
+            lat: wp.lat,
+            lng: lng,
+            has_lat: wp.lat !== undefined && wp.lat !== null,
+            has_lng: lng !== undefined && lng !== null
+          });
+          throw new Error(`Invalid waypoint at index ${index}: missing lat or lon`);
+        }
+
+        // Robust number conversion with explicit defaults
+        const latitude = parseFloat(String(wp.lat));
+        const longitude = parseFloat(String(lng));
+        
+        // Handle altitude more carefully
+        let altitude = 10; // Default
+        if (wp.alt !== null && wp.alt !== undefined && wp.alt !== '') {
+          const altNum = parseFloat(String(wp.alt));
+          if (!isNaN(altNum)) {
+            altitude = altNum;
+          }
+        }
+
+        console.log(`Waypoint ${index} conversion results:`, {
+          latitude: { original: wp.lat, converted: latitude, isValid: !isNaN(latitude) },
+          longitude: { original: lng, converted: longitude, isValid: !isNaN(longitude) },
+          altitude: { original: wp.alt, converted: altitude, isValid: !isNaN(altitude) }
+        });
+
+        // Validate that all are valid numbers
+        if (isNaN(latitude) || isNaN(longitude) || isNaN(altitude)) {
+          console.error(`❌ Invalid number conversion at waypoint ${index}:`, {
+            latitude: { value: wp.lat, converted: latitude, isNaN: isNaN(latitude) },
+            longitude: { value: lng, converted: longitude, isNaN: isNaN(longitude) },
+            altitude: { value: wp.alt, converted: altitude, isNaN: isNaN(altitude) }
+          });
+          throw new Error(`Invalid coordinate values at waypoint ${index}: lat=${isNaN(latitude)?'NaN':'OK'}, lon=${isNaN(longitude)?'NaN':'OK'}, alt=${isNaN(altitude)?'NaN':'OK'}`);
+        }
+
+        const formattedWp = {
+          latitude: latitude,
+          longitude: longitude,
+          altitude: altitude
+        };
+
+        console.log(`✅ Formatted waypoint ${index}:`, formattedWp);
+
+        return formattedWp;
+      });
+
+      console.log('✅ Formatted waypoints:', waypoints);
+
+      // Double-check: ensure all waypoints have valid numeric values
+      const cleanedWaypoints = waypoints.map((wp, idx) => {
+        const cleaned = {
+          latitude: parseFloat(String(wp.latitude)),
+          longitude: parseFloat(String(wp.longitude)),
+          altitude: parseFloat(String(wp.altitude))
+        };
+        
+        // Final validation
+        if (isNaN(cleaned.latitude) || isNaN(cleaned.longitude) || isNaN(cleaned.altitude)) {
+          console.error(`Final validation failed for waypoint ${idx}:`, cleaned);
+          throw new Error(`Waypoint ${idx} has invalid numeric values after cleaning`);
+        }
+        
+        return cleaned;
+      });
+
+      console.log('🧹 Cleaned waypoints (final):', cleanedWaypoints);
+
+      // Prepare the payload matching SkyrouteXMissionUpload model
+      const payload = {
+        mission_id: String(currentMissionId),
+        vehicle_id: 'UAV-001',
+        waypoints: cleanedWaypoints,  // Use cleaned waypoints
+        connection_string: 'udp://127.0.0.1:14540'
+      };
+
+      // Remove null/undefined fields
+      if (payload.connection_string === null || payload.connection_string === undefined) {
+        delete (payload as any).connection_string;
+      }
+
+      console.log('📦 Request payload:', JSON.stringify(payload, null, 2));
+
+      // Mission ID is in the URL path
+      const url = `${API_BASE}/api/v1/missions/upload-to-px4/${currentMissionId}`;
+      console.log('🌐 Request URL:', url);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      console.log('📡 Response status:', response.status, response.statusText);
+
+      const data = await response.json();
+      console.log('📡 Response data:', data);
+
+      if (!response.ok) {
+        // Log detailed validation error
+        if (response.status === 422 && data.detail) {
+          console.error('❌ Validation Error Details:', JSON.stringify(data.detail, null, 2));
+          
+          // Extract validation error messages
+          let errorMsg = 'Validation failed:\n';
+          if (Array.isArray(data.detail)) {
+            data.detail.forEach((err: any) => {
+              errorMsg += `- ${err.loc?.join(' -> ')}: ${err.msg}\n`;
+            });
+          } else {
+            errorMsg = data.detail;
+          }
+          
+          showToast(errorMsg, 'error');
+          throw new Error(errorMsg);
+        }
+        
+        console.error('❌ Upload failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          data: data
+        });
+        throw new Error(data.detail || data.message || `HTTP ${response.status}: Upload failed`);
+      }
+
+      if (data.success) {
+        const waypointCount = data.waypoint_count || data.data?.waypoint_count || waypoints.length;
+        showToast(`✅ Mission uploaded! ${waypointCount} waypoints transferred to PX4`, 'success');
+        setMissionUploaded(true);
+        
+        // Refresh status to get updated mission count
+        setTimeout(async () => {
+          await fetchStatus();
+        }, 500);
+      } else {
+        throw new Error(data.message || 'Upload failed');
+      }
+    } catch (error: any) {
+      console.error('❌ Error uploading mission:', error);
+      showToast(`❌ Upload error: ${error.message || 'Network error'}`, 'error');
+      setMissionUploaded(false);
+    } finally {
+      setLoading(prev => ({ ...prev, upload: false }));
+    }
+  };
+
   const handleStartMission = () => {
+    if (!missionUploaded) {
+      showToast('Please upload mission to PX4 first', 'error');
+      return;
+    }
+    
     handleCommand(
       `/api/v1/missions/${currentMissionId}/start`,
       { force_start: false },
       'start',
-      'Mission started successfully'
+      '✅ Mission started successfully'
     );
   };
 
@@ -718,6 +939,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   useEffect(() => {
     if (selectedMission?.id) {
       setCurrentMissionId(selectedMission.id);
+      setMissionUploaded(false); // Reset upload status when mission changes
       const newCenter = getDefaultPosition();
       setMapCenter(newCenter);
       showToast(`Mission "${selectedMission.name}" loaded`, 'success');
@@ -772,14 +994,14 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   // RENDER
   // ============================================================================
 
-    const [lastTelemetryUpdate, setLastTelemetryUpdate] = useState<number>(Date.now());
-    const [updateFrequency, setUpdateFrequency] = useState<number>(0);
-    const [telemetryPulse, setTelemetryPulse] = useState<boolean>(false);
-    const updateCountRef = useRef<number>(0);
-    const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [lastTelemetryUpdate, setLastTelemetryUpdate] = useState<number>(Date.now());
+  const [updateFrequency, setUpdateFrequency] = useState<number>(0);
+  const [telemetryPulse, setTelemetryPulse] = useState<boolean>(false);
+  const updateCountRef = useRef<number>(0);
+  const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Update the handleTelemetryUpdate function:
-    const handleTelemetryUpdate = (data: TelemetryData) => {
+  // Update the handleTelemetryUpdate function:
+  const handleTelemetryUpdate = (data: TelemetryData) => {
     setTelemetry(data);
     setLastTelemetryUpdate(Date.now());
     
@@ -792,44 +1014,44 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     
     // Add to flight path and update map only if position is valid
     if (data.position) {
-        const { lat, lon, alt } = data.position;
-        
-        if (isValidCoordinate(lat, lon)) {
+      const { lat, lon, alt } = data.position;
+      
+      if (isValidCoordinate(lat, lon)) {
         const newPoint: FlightPath = {
-            lat,
-            lon,
-            alt,
-            timestamp: Date.now(),
+          lat,
+          lon,
+          alt,
+          timestamp: Date.now(),
         };
         
         setFlightPath(prev => {
-            const updated = [...prev, newPoint];
-            return updated.slice(-500);
+          const updated = [...prev, newPoint];
+          return updated.slice(-500);
         });
         
         if (status?.flying) {
-            setMapCenter([lat, lon]);
+          setMapCenter([lat, lon]);
         }
-        }
+      }
     }
+  };
+
+  // Add effect to calculate update frequency (Hz):
+  useEffect(() => {
+    updateTimerRef.current = setInterval(() => {
+      setUpdateFrequency(updateCountRef.current);
+      updateCountRef.current = 0;
+    }, 1000);
+    
+    return () => {
+      if (updateTimerRef.current) {
+        clearInterval(updateTimerRef.current);
+      }
     };
+  }, []);
 
-    // Add effect to calculate update frequency (Hz):
-    useEffect(() => {
-        updateTimerRef.current = setInterval(() => {
-            setUpdateFrequency(updateCountRef.current);
-            updateCountRef.current = 0;
-        }, 1000);
-        
-        return () => {
-            if (updateTimerRef.current) {
-            clearInterval(updateTimerRef.current);
-            }
-        };
-    }, []);
-
-    // Helper function to format time ago:
-    const formatTimeAgo = (timestamp: number): string => {
+  // Helper function to format time ago:
+  const formatTimeAgo = (timestamp: number): string => {
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
     
     if (seconds < 1) return 'Just now';
@@ -843,10 +1065,10 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     const hours = Math.floor(minutes / 60);
     if (hours === 1) return '1 hour ago';
     return `${hours} hours ago`;
-    };
+  };
 
-    // Helper to get data freshness indicator:
-    const getDataFreshnessColor = (timestamp: number): string => {
+  // Helper to get data freshness indicator:
+  const getDataFreshnessColor = (timestamp: number): string => {
     const ageMs = Date.now() - timestamp;
     
     if (ageMs < 1000) return 'text-green-400';      // < 1s - Fresh
@@ -901,6 +1123,13 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
                       </div>
                     </>
                   )}
+                  <div className="h-4 w-px bg-gray-700"></div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-400">Status:</span>
+                    <span className={`text-sm font-semibold ${missionUploaded ? 'text-green-400' : 'text-orange-400'}`}>
+                      {missionUploaded ? '✓ Uploaded' : '⚠ Not Uploaded'}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -1014,22 +1243,17 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           </MapContainer>
 
           {/* Telemetry Display */}
-            <TelemetryDisplay 
-                telemetry={telemetry}
-                status={status}
-                wsConnected={wsConnected}
-            />
-            <TelemetryDisplay 
-                telemetry={telemetry}
-                status={status}
-                wsConnected={wsConnected}
-                lastUpdate={lastTelemetryUpdate}     
-                updateFrequency={updateFrequency}     
-                isPulsing={telemetryPulse}            
-            />
+          <TelemetryDisplay 
+            telemetry={telemetry}
+            status={status}
+            wsConnected={wsConnected}
+            lastUpdate={lastTelemetryUpdate}     
+            updateFrequency={updateFrequency}     
+            isPulsing={telemetryPulse}            
+          />
         </div>
 
-        {/* Control Panel - (Rest of the control panel code remains the same) */}
+        {/* Control Panel */}
         <div className="w-96 bg-gray-900 border-l border-gray-800 p-6 overflow-y-auto">
           <h2 className="text-xl font-bold text-white mb-6">Mission Controls</h2>
 
@@ -1057,9 +1281,37 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           </div>
 
           <div className="space-y-3">
+            {/* Upload Mission Button - NEW */}
+            <button
+              onClick={handleUploadMission}
+              disabled={!isConnected || !currentMissionId || loading.upload}
+              className={`w-full px-4 py-3 font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                missionUploaded 
+                  ? 'bg-green-600/20 border-2 border-green-500 text-green-400 cursor-default' 
+                  : 'bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white'
+              }`}
+            >
+              {loading.upload ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Uploading...
+                </>
+              ) : missionUploaded ? (
+                <>
+                  <span>✓</span>
+                  Mission Uploaded to PX4
+                </>
+              ) : (
+                <>
+                  <Upload size={20} />
+                  Upload Mission to PX4
+                </>
+              )}
+            </button>
+
             <button
               onClick={handleStartMission}
-              disabled={!isConnected || loading.start}
+              disabled={!isConnected || !missionUploaded || loading.start}
               className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               {loading.start ? (
@@ -1182,6 +1434,12 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-gray-400">Mission Uploaded:</span>
+                <span className={missionUploaded ? 'text-green-400' : 'text-orange-400'}>
+                  {missionUploaded ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-gray-400">Armed:</span>
                 <span className={status?.armed ? 'text-yellow-400' : 'text-gray-500'}>
                   {status?.armed ? 'Yes' : 'No'}
@@ -1198,6 +1456,10 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
                 <span className={status?.mission_active ? 'text-blue-400' : 'text-gray-500'}>
                   {status?.mission_active ? 'Yes' : 'No'}
                 </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">PX4 Mission WPs:</span>
+                <span className="text-white">{status?.mission_count || 0}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Flight Path Points:</span>
