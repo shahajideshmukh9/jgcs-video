@@ -7,6 +7,7 @@ import MissionListComponent from './MissionList'
 import RoutePlanning from './RoutePlanning'
 import { ApiMission } from '@/services/missionService'
 import DashboardAnalytics from './DashboardAnalytics'
+import SituationalAwareness from './SituationalAwareness';
 
 const MissionTypes = dynamic(() => import('./MissionTypes'), { ssr: false })
 const DroneFlightVisualization = dynamic(() => import('./Droneflightvisualization'), { ssr: false })
@@ -112,7 +113,7 @@ export default function DashboardLayout() {
           onBack={handleBackToMissions}
         />
       )}
-      {currentPage === 'awareness' && <LiveMap />}
+      {currentPage === 'awareness' && <SituationalAwareness />}
       {currentPage === 'vehicles' && <VehicleLibrary />}
       {currentPage === 'operators' && <OperatorLibrary />}
       {currentPage === 'profile' && <UserProfile />}

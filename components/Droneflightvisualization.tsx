@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { ArrowLeft, Upload } from 'lucide-react';
+import { ArrowLeft, Upload, PlayCircle, StopCircle } from 'lucide-react';
 import TelemetryDisplay from '@/components/TelemetryDisplay';
 
 // Fix Leaflet default icon issue
@@ -97,12 +97,60 @@ interface DroneFlightVisualizationProps {
   onBack?: () => void;
 }
 
+interface WaypointStatus {
+  index: number;
+  status: 'pending' | 'active' | 'completed';
+  arrivalTime?: number;
+}
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
 const getWaypointLongitude = (wp: MissionWaypoint): number | undefined => {
   return wp.lng ?? wp.lon;
+};
+
+// Calculate distance between two points (Haversine formula)
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // Distance in meters
+};
+
+// Calculate bearing between two points
+const calculateBearing = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  const θ = Math.atan2(y, x);
+
+  return ((θ * 180) / Math.PI + 360) % 360; // Bearing in degrees
+};
+
+// Interpolate between two positions
+const interpolatePosition = (
+  start: { lat: number; lon: number; alt: number },
+  end: { lat: number; lon: number; alt: number },
+  progress: number
+): { lat: number; lon: number; alt: number } => {
+  return {
+    lat: start.lat + (end.lat - start.lat) * progress,
+    lon: start.lon + (end.lon - start.lon) * progress,
+    alt: start.alt + (end.alt - start.alt) * progress,
+  };
 };
 
 // ============================================================================
@@ -143,7 +191,18 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   const [loading, setLoading] = useState<{[key: string]: boolean}>({});
   const [missionUploaded, setMissionUploaded] = useState<boolean>(false);
   
+  // 🆕 SIMULATION MODE STATE
+  const [simulationMode, setSimulationMode] = useState<boolean>(false);
+  const [simulationRunning, setSimulationRunning] = useState<boolean>(false);
+  const [waypointStatuses, setWaypointStatuses] = useState<WaypointStatus[]>([]);
+  const [missionProgress, setMissionProgress] = useState<number>(0);
+  const [currentWaypointIndex, setCurrentWaypointIndex] = useState<number>(0);
+  const [distanceToNextWaypoint, setDistanceToNextWaypoint] = useState<number>(0);
+  const [estimatedTimeToWaypoint, setEstimatedTimeToWaypoint] = useState<number>(0);
+  const [simulatedSpeed, setSimulatedSpeed] = useState<number>(10); // m/s
+  
   const telemetryInterval = useRef<NodeJS.Timeout | null>(null);
+  const simulationInterval = useRef<NodeJS.Timeout | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef<number>(0);
@@ -154,10 +213,216 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   const WS_BASE = process.env.NEXT_PUBLIC_DRONE_WS_URL || 'ws://localhost:7000';
   
   // ============================================================================
+  // 🆕 SIMULATION MODE FUNCTIONS
+  // ============================================================================
+
+  const initializeWaypointStatuses = () => {
+    if (!selectedMission?.waypoints) return;
+    
+    const statuses: WaypointStatus[] = selectedMission.waypoints.map((_, index) => ({
+      index,
+      status: 'pending'
+    }));
+    
+    if (statuses.length > 0) {
+      statuses[0].status = 'active';
+    }
+    
+    setWaypointStatuses(statuses);
+    setCurrentWaypointIndex(0);
+    setMissionProgress(0);
+  };
+
+  const startSimulation = () => {
+    if (!selectedMission?.waypoints || selectedMission.waypoints.length === 0) {
+      showToast('No mission waypoints to simulate', 'error');
+      return;
+    }
+
+    showToast('🚁 Starting real-time simulation with live telemetry...', 'success');
+    setSimulationRunning(true);
+    initializeWaypointStatuses();
+    
+    // Initialize simulated status
+    const firstWp = selectedMission.waypoints[0];
+    const lng = getWaypointLongitude(firstWp)!;
+    
+    setStatus({
+      connected: true,
+      armed: true,
+      flying: true,
+      current_position: {
+        lat: firstWp.lat,
+        lon: lng,
+        alt: firstWp.alt || takeoffAltitude
+      },
+      home_position: {
+        lat: firstWp.lat,
+        lon: lng,
+        alt: 0
+      },
+      battery_level: 100,
+      flight_mode: 'AUTO.MISSION',
+      mission_active: true,
+      mission_current: 1,
+      mission_count: selectedMission.waypoints.length
+    });
+
+    // Start simulation loop
+    runSimulation();
+  };
+
+  const stopSimulation = () => {
+    if (simulationInterval.current) {
+      clearInterval(simulationInterval.current);
+      simulationInterval.current = null;
+    }
+    
+    setSimulationRunning(false);
+    showToast('⏸️ Simulation stopped', 'info');
+  };
+
+  const runSimulation = () => {
+    if (!selectedMission?.waypoints) return;
+
+    let currentWpIndex = 0;
+    let progress = 0;
+    const totalWaypoints = selectedMission.waypoints.length;
+    
+    // Get starting position
+    const startWp = selectedMission.waypoints[0];
+    const startLng = getWaypointLongitude(startWp)!;
+    let currentPos = {
+      lat: startWp.lat,
+      lon: startLng,
+      alt: startWp.alt || takeoffAltitude
+    };
+
+    simulationInterval.current = setInterval(() => {
+      if (currentWpIndex >= totalWaypoints) {
+        stopSimulation();
+        showToast('✅ Simulation mission completed!', 'success');
+        return;
+      }
+
+      const targetWp = selectedMission.waypoints[currentWpIndex];
+      const targetLng = getWaypointLongitude(targetWp)!;
+      const target = {
+        lat: targetWp.lat,
+        lon: targetLng,
+        alt: targetWp.alt || takeoffAltitude
+      };
+
+      // Calculate distance to target
+      const distance = calculateDistance(
+        currentPos.lat,
+        currentPos.lon,
+        target.lat,
+        target.lon
+      );
+
+      setDistanceToNextWaypoint(distance);
+      setEstimatedTimeToWaypoint(distance / simulatedSpeed);
+
+      // Move towards target
+      if (distance < 5) {
+        // Reached waypoint
+        currentPos = target;
+        
+        // Update waypoint status
+        setWaypointStatuses(prev => {
+          const updated = [...prev];
+          if (updated[currentWpIndex]) {
+            updated[currentWpIndex].status = 'completed';
+            updated[currentWpIndex].arrivalTime = Date.now();
+          }
+          if (currentWpIndex + 1 < totalWaypoints && updated[currentWpIndex + 1]) {
+            updated[currentWpIndex + 1].status = 'active';
+          }
+          return updated;
+        });
+
+        showToast(`✅ Waypoint ${currentWpIndex + 1} reached!`, 'success');
+        
+        currentWpIndex++;
+        setCurrentWaypointIndex(currentWpIndex);
+        setMissionProgress((currentWpIndex / totalWaypoints) * 100);
+        
+        // Update status
+        setStatus(prev => prev ? {
+          ...prev,
+          mission_current: currentWpIndex + 1,
+          current_position: currentPos
+        } : null);
+        
+      } else {
+        // Interpolate position
+        const moveDistance = Math.min(simulatedSpeed * 0.1, distance); // Move 10% per update
+        const moveProgress = moveDistance / distance;
+        
+        currentPos = interpolatePosition(currentPos, target, moveProgress);
+        
+        // Calculate bearing for yaw
+        const bearing = calculateBearing(
+          currentPos.lat,
+          currentPos.lon,
+          target.lat,
+          target.lon
+        );
+
+        // Calculate velocity
+        const vx = simulatedSpeed * Math.cos((bearing * Math.PI) / 180);
+        const vy = simulatedSpeed * Math.sin((bearing * Math.PI) / 180);
+
+        // Update telemetry
+        setTelemetry({
+          position: currentPos,
+          velocity: { vx, vy, vz: 0 },
+          attitude: { roll: 0, pitch: 0, yaw: bearing },
+          battery: {
+            voltage: 16.8 - (currentWpIndex / totalWaypoints) * 2,
+            current: 15.5,
+            remaining: 100 - (currentWpIndex / totalWaypoints) * 100
+          },
+          gps: {
+            satellites: 12,
+            fix_type: 3,
+            hdop: 0.8
+          }
+        });
+
+        // Update status
+        setStatus(prev => prev ? {
+          ...prev,
+          current_position: currentPos,
+          battery_level: 100 - (currentWpIndex / totalWaypoints) * 100
+        } : null);
+
+        // Add to flight path
+        setFlightPath(prev => {
+          const newPath = [...prev, {
+            ...currentPos,
+            timestamp: Date.now()
+          }];
+          return newPath.slice(-500); // Keep last 500 points
+        });
+
+        // Update map center if flying
+        setMapCenter([currentPos.lat, currentPos.lon]);
+      }
+    }, 100); // Update every 100ms for smooth animation
+  };
+
+  // ============================================================================
   // WEBSOCKET TELEMETRY CONNECTION
   // ============================================================================
 
   const connectWebSocket = () => {
+    if (simulationMode) {
+      console.log('Simulation mode active, skipping WebSocket connection');
+      return;
+    }
+
     // Don't reconnect if already connected or if we've exceeded max attempts
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       console.log('WebSocket already connected');
@@ -167,7 +432,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
       console.log('❌ Max WebSocket reconnection attempts reached');
       showToast('WebSocket connection failed. Using fallback polling.', 'error');
-      startStatusPolling(); // Fallback to HTTP polling
+      startStatusPolling();
       return;
     }
 
@@ -178,10 +443,9 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
       ws.onopen = () => {
         console.log('✅ WebSocket connected');
         setWsConnected(true);
-        reconnectAttemptsRef.current = 0; // Reset reconnection counter
+        reconnectAttemptsRef.current = 0;
         showToast('✅ Real-time telemetry connected', 'success');
         
-        // Subscribe to mission telemetry
         if (currentMissionId) {
           ws.send(JSON.stringify({
             action: 'subscribe',
@@ -195,25 +459,19 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
         try {
           const message = JSON.parse(event.data);
           
-          // Handle different message types
           switch (message.type) {
             case 'telemetry_update':
               handleTelemetryUpdate(message.data);
               break;
-              
             case 'connection_info':
               console.log('Connection info:', message);
               break;
-              
             case 'error':
               console.error('WebSocket error:', message.message);
               showToast(message.message, 'error');
               break;
-              
             case 'pong':
-              // Heartbeat response
               break;
-              
             default:
               console.log('Unknown message type:', message);
           }
@@ -228,10 +486,9 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
       };
       
       ws.onclose = (event) => {
-        console.log(`🔌 WebSocket closed (Code: ${event.code}, Reason: ${event.reason})`);
+        console.log(`🔌 WebSocket closed (Code: ${event.code})`);
         setWsConnected(false);
         
-        // Attempt to reconnect with exponential backoff
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           reconnectAttemptsRef.current += 1;
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
@@ -252,7 +509,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     } catch (error) {
       console.error('Failed to create WebSocket:', error);
       setWsConnected(false);
-      startStatusPolling(); // Fallback
+      startStatusPolling();
     }
   };
 
@@ -271,7 +528,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     reconnectAttemptsRef.current = 0;
   };
 
-  // Send heartbeat ping every 30 seconds
   useEffect(() => {
     if (wsConnected && wsRef.current?.readyState === WebSocket.OPEN) {
       const pingInterval = setInterval(() => {
@@ -283,11 +539,11 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   }, [wsConnected]);
 
   // ============================================================================
-  // FALLBACK HTTP POLLING (if WebSocket fails)
+  // FALLBACK HTTP POLLING
   // ============================================================================
 
   const startStatusPolling = () => {
-    if (telemetryInterval.current) return; // Already polling
+    if (telemetryInterval.current || simulationMode) return;
     
     console.log('📊 Starting HTTP polling fallback');
     telemetryInterval.current = setInterval(() => {
@@ -305,6 +561,8 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   };
 
   const fetchTelemetryHTTP = async () => {
+    if (simulationMode) return;
+    
     try {
       const response = await fetch(`${API_BASE}/telemetry`);
       const data = await response.json();
@@ -368,10 +626,12 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   };
 
   // ============================================================================
-  // API FUNCTIONS
+  // API FUNCTIONS (Only for real mode)
   // ============================================================================
 
   const fetchStatus = async () => {
+    if (simulationMode) return;
+    
     try {
       const response = await fetch(`${API_BASE}/status`);
       const data = await response.json();
@@ -400,6 +660,11 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     loadingKey: string,
     successMessage: string
   ) => {
+    if (simulationMode) {
+      showToast('Simulation mode active - command not sent to real drone', 'info');
+      return;
+    }
+
     setLoading(prev => ({ ...prev, [loadingKey]: true }));
     
     try {
@@ -431,7 +696,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           setStatus(prev => prev ? { ...prev, flying: false } : null);
         }
         
-        // Verify with backend
         setTimeout(async () => {
           for (let i = 0; i < 3; i++) {
             await new Promise(resolve => setTimeout(resolve, 300 + (i * 200)));
@@ -450,6 +714,12 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   };
 
   const handleUploadMission = async () => {
+    if (simulationMode) {
+      showToast('Simulation mode - mission uploaded locally', 'success');
+      setMissionUploaded(true);
+      return;
+    }
+
     if (!currentMissionId) {
       showToast('Please select a mission first', 'error');
       return;
@@ -464,14 +734,12 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     showToast('📤 Uploading mission to PX4 SITL...', 'info');
 
     try {
-      // Get mission waypoints from selectedMission
       if (!selectedMission?.waypoints || selectedMission.waypoints.length === 0) {
         throw new Error('No waypoints in selected mission');
       }
 
       console.log(`📤 Uploading mission ${currentMissionId} with ${selectedMission.waypoints.length} waypoints`);
 
-      // Format waypoints for backend - must be List[Dict[str, float]]
       const waypoints = selectedMission.waypoints.map((wp, index) => {
         const lng = getWaypointLongitude(wp);
         
@@ -480,12 +748,10 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           throw new Error(`Invalid waypoint at index ${index}: missing lat or lon`);
         }
 
-        // Robust number conversion with explicit defaults
         const latitude = parseFloat(String(wp.lat));
         const longitude = parseFloat(String(lng));
         
-        // Handle altitude more carefully
-        let altitude = 10; // Default
+        let altitude = 10;
         if (wp.alt !== null && wp.alt !== undefined && wp.alt !== '') {
           const altNum = parseFloat(String(wp.alt));
           if (!isNaN(altNum)) {
@@ -493,7 +759,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           }
         }
 
-        // Validate that all are valid numbers
         if (isNaN(latitude) || isNaN(longitude) || isNaN(altitude)) {
           console.error(`❌ Invalid conversion at waypoint ${index}:`, {
             lat: wp.lat, lng, alt: wp.alt,
@@ -509,7 +774,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
         };
       });
 
-      // Double-check: ensure all waypoints have valid numeric values
       const cleanedWaypoints = waypoints.map((wp, idx) => {
         const cleaned = {
           latitude: parseFloat(String(wp.latitude)),
@@ -517,7 +781,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           altitude: parseFloat(String(wp.altitude))
         };
         
-        // Final validation
         if (isNaN(cleaned.latitude) || isNaN(cleaned.longitude) || isNaN(cleaned.altitude)) {
           console.error(`Final validation failed for waypoint ${idx}:`, cleaned);
           throw new Error(`Waypoint ${idx} has invalid numeric values after cleaning`);
@@ -528,20 +791,17 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
 
       console.log(`✅ Prepared ${cleanedWaypoints.length} waypoints for upload`);
 
-      // Prepare the payload matching SkyrouteXMissionUpload model
       const payload = {
         mission_id: String(currentMissionId),
         vehicle_id: 'UAV-001',
-        waypoints: cleanedWaypoints,  // Use cleaned waypoints
+        waypoints: cleanedWaypoints,
         connection_string: 'udp://127.0.0.1:14540'
       };
 
-      // Remove null/undefined fields
       if (payload.connection_string === null || payload.connection_string === undefined) {
         delete (payload as any).connection_string;
       }
 
-      // Mission ID is in the URL path
       const url = `${API_BASE}/api/v1/missions/upload-to-px4/${currentMissionId}`;
 
       const response = await fetch(url, {
@@ -555,11 +815,9 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
       const data = await response.json();
 
       if (!response.ok) {
-        // Log detailed validation error
         if (response.status === 422 && data.detail) {
           console.error('❌ Validation Error:', data.detail);
           
-          // Extract validation error messages
           let errorMsg = 'Validation failed:\n';
           if (Array.isArray(data.detail)) {
             data.detail.forEach((err: any) => {
@@ -583,7 +841,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
         showToast(`✅ Mission uploaded! ${waypointCount} waypoints transferred to PX4`, 'success');
         setMissionUploaded(true);
         
-        // Refresh status to get updated mission count
         setTimeout(async () => {
           await fetchStatus();
         }, 500);
@@ -600,6 +857,11 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   };
 
   const handleStartMission = async () => {
+    if (simulationMode) {
+      startSimulation();
+      return;
+    }
+
     if (!missionUploaded) {
       showToast('Please upload mission to PX4 first', 'error');
       return;
@@ -619,11 +881,9 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
       if (response.status === 400 && data.detail?.includes('already active')) {
         setLoading(prev => ({ ...prev, start: false }));
         
-        // Show custom toast with action buttons
         showConfirmationToast(
           '⚠️ A mission is already active. Stop current mission and start new one?',
           async () => {
-            // User confirmed - stop and restart
             setLoading(prev => ({ ...prev, start: true }));
             showToast('Stopping current mission...', 'info');
             
@@ -637,7 +897,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
               if (stopResponse.ok) {
                 showToast('✅ Current mission stopped', 'success');
                 
-                // Wait a moment then retry start
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 
                 showToast('Starting new mission...', 'info');
@@ -653,7 +912,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
                 if (retryData.success) {
                   showToast('✅ New mission started successfully', 'success');
                   
-                  // Refresh status
                   setTimeout(async () => {
                     for (let i = 0; i < 3; i++) {
                       await new Promise(resolve => setTimeout(resolve, 300));
@@ -673,12 +931,11 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
             }
           },
           () => {
-            // User cancelled
             showToast('Mission start cancelled', 'info');
           }
         );
         
-        return; // Exit early since we're handling async confirmation
+        return;
       } else if (!response.ok) {
         throw new Error(data.detail || data.message || 'Failed to start mission');
       } else if (data.success) {
@@ -692,7 +949,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     } finally {
       setLoading(prev => ({ ...prev, start: false }));
       
-      // Refresh status after operation
       setTimeout(async () => {
         for (let i = 0; i < 3; i++) {
           await new Promise(resolve => setTimeout(resolve, 300));
@@ -703,6 +959,11 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   };
 
   const handleStopMission = async () => {
+    if (simulationMode) {
+      stopSimulation();
+      return;
+    }
+
     if (!currentMissionId) {
       showToast('No mission selected', 'error');
       return;
@@ -727,7 +988,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
       if (data.success) {
         showToast('✅ Mission stopped successfully', 'success');
         
-        // Refresh status
         setTimeout(async () => {
           for (let i = 0; i < 3; i++) {
             await new Promise(resolve => setTimeout(resolve, 300));
@@ -799,6 +1059,12 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   };
 
   const connectToSimulator = async () => {
+    if (simulationMode) {
+      showToast('Simulation mode active - no real connection needed', 'info');
+      setIsConnected(true);
+      return;
+    }
+
     try {
       setLoading(prev => ({ ...prev, connect: true }));
       showToast('Connecting to simulator...', 'info');
@@ -820,8 +1086,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
         setIsConnected(true);
         
         await fetchStatus();
-        
-        // Connect to WebSocket for real-time telemetry
         connectWebSocket();
       } else {
         throw new Error(data.message || 'Connection failed');
@@ -856,6 +1120,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
       border-radius: 8px;
       z-index: 10000;
       animation: slideIn 0.3s ease;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
     `;
     document.body.appendChild(toast);
     setTimeout(() => {
@@ -949,7 +1214,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     toast.appendChild(buttonsDiv);
     document.body.appendChild(toast);
     
-    // Auto-dismiss after 10 seconds if no action
     setTimeout(() => {
       if (document.body.contains(toast)) {
         toast.style.animation = 'slideOut 0.3s ease';
@@ -981,6 +1245,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           display: flex;
           align-items: center;
           justify-content: center;
+          transition: transform 0.3s ease;
         ">
           <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="12" cy="12" r="3" fill="${color}" stroke="white" stroke-width="1"/>
@@ -1017,16 +1282,24 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     });
   };
 
-  const createWaypointIcon = (index: number, isActive: boolean = false) => {
-    const color = isActive ? '#22c55e' : '#3b82f6';
+  const createWaypointIcon = (index: number, wpStatus: 'pending' | 'active' | 'completed') => {
+    const colorMap = {
+      pending: '#6b7280',    // Gray
+      active: '#3b82f6',     // Blue with pulse
+      completed: '#22c55e'   // Green
+    };
+    
+    const color = colorMap[wpStatus];
+    const isPulsing = wpStatus === 'active';
+    
     return L.divIcon({
       className: 'custom-waypoint-icon',
       html: `
         <div style="
           background: ${color};
           color: white;
-          width: 32px;
-          height: 32px;
+          width: 36px;
+          height: 36px;
           border-radius: 50%;
           display: flex;
           align-items: center;
@@ -1035,12 +1308,25 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           font-size: 14px;
           border: 3px solid white;
           box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+          ${isPulsing ? 'animation: pulse-icon 2s ease-in-out infinite;' : ''}
+          position: relative;
         ">
-          ${index + 1}
+          ${wpStatus === 'completed' ? '✓' : index + 1}
+          ${isPulsing ? `
+            <div style="
+              position: absolute;
+              width: 100%;
+              height: 100%;
+              border-radius: 50%;
+              background: ${color};
+              opacity: 0.5;
+              animation: pulse-ring 2s ease-out infinite;
+            "></div>
+          ` : ''}
         </div>
       `,
-      iconSize: [32, 32],
-      iconAnchor: [16, 16],
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
     });
   };
 
@@ -1053,6 +1339,12 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     
     const initializeConnection = async () => {
       if (!isMounted) return;
+      
+      if (simulationMode) {
+        setIsConnected(true);
+        showToast('🎮 Simulation mode activated', 'success');
+        return;
+      }
       
       try {
         setLoading(prev => ({ ...prev, connect: true }));
@@ -1075,7 +1367,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           
           await fetchStatus();
           
-          // Connect WebSocket for real-time telemetry
           if (isMounted) {
             connectWebSocket();
           }
@@ -1095,23 +1386,27 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     
     initializeConnection();
     
-    // Cleanup
     return () => {
       isMounted = false;
       disconnectWebSocket();
       stopStatusPolling();
+      if (simulationInterval.current) {
+        clearInterval(simulationInterval.current);
+      }
     };
-  }, []);
+  }, [simulationMode]);
 
   useEffect(() => {
     if (selectedMission?.id) {
       setCurrentMissionId(selectedMission.id);
-      setMissionUploaded(false); // Reset upload status when mission changes
+      setMissionUploaded(false);
       const newCenter = getDefaultPosition();
       setMapCenter(newCenter);
       showToast(`Mission "${selectedMission.name}" loaded`, 'success');
       
-      // If WebSocket is connected, subscribe to new mission
+      // Initialize waypoint statuses
+      initializeWaypointStatuses();
+      
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
           action: 'subscribe',
@@ -1157,29 +1452,21 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
 
   const validWaypoints = getValidWaypoints();
 
-  // ============================================================================
-  // RENDER
-  // ============================================================================
-
   const [lastTelemetryUpdate, setLastTelemetryUpdate] = useState<number>(Date.now());
   const [updateFrequency, setUpdateFrequency] = useState<number>(0);
   const [telemetryPulse, setTelemetryPulse] = useState<boolean>(false);
   const updateCountRef = useRef<number>(0);
   const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Update the handleTelemetryUpdate function:
   const handleTelemetryUpdate = (data: TelemetryData) => {
     setTelemetry(data);
     setLastTelemetryUpdate(Date.now());
     
-    // Trigger visual pulse
     setTelemetryPulse(true);
     setTimeout(() => setTelemetryPulse(false), 200);
     
-    // Calculate update frequency
     updateCountRef.current += 1;
     
-    // Add to flight path and update map only if position is valid
     if (data.position) {
       const { lat, lon, alt } = data.position;
       
@@ -1203,7 +1490,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     }
   };
 
-  // Add effect to calculate update frequency (Hz):
   useEffect(() => {
     updateTimerRef.current = setInterval(() => {
       setUpdateFrequency(updateCountRef.current);
@@ -1217,7 +1503,6 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     };
   }, []);
 
-  // Helper function to format time ago:
   const formatTimeAgo = (timestamp: number): string => {
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
     
@@ -1234,15 +1519,26 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     return `${hours} hours ago`;
   };
 
-  // Helper to get data freshness indicator:
   const getDataFreshnessColor = (timestamp: number): string => {
     const ageMs = Date.now() - timestamp;
     
-    if (ageMs < 1000) return 'text-green-400';      // < 1s - Fresh
-    if (ageMs < 3000) return 'text-yellow-400';     // < 3s - Acceptable  
-    if (ageMs < 10000) return 'text-orange-400';    // < 10s - Stale
-    return 'text-red-400';                           // > 10s - Very stale
+    if (ageMs < 1000) return 'text-green-400';
+    if (ageMs < 3000) return 'text-yellow-400';
+    if (ageMs < 10000) return 'text-orange-400';
+    return 'text-red-400';
   };
+
+  // Format ETA
+  const formatETA = (seconds: number): string => {
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.round(seconds % 60);
+    return `${minutes}m ${secs}s`;
+  };
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
 
   return (
     <div className="flex flex-col h-full w-full bg-gray-950">
@@ -1286,7 +1582,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
                       <div className="h-4 w-px bg-gray-700"></div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-400">Distance:</span>
-                        <span className="text-sm text-white font-semibold">{selectedMission.distance.toFixed(2)} km</span>
+                        <span className="text-sm text-white font-semibold">{Number(selectedMission.distance).toFixed(2)} km</span>
                       </div>
                     </>
                   )}
@@ -1303,23 +1599,62 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           </div>
           
           <div className="flex items-center gap-4">
+            {/* 🆕 Simulation Mode Toggle */}
+            <div className="flex items-center gap-3 px-4 py-2 bg-gray-800 rounded-lg border border-gray-700">
+              <span className="text-sm text-gray-400">Real-time Simulation:</span>
+              <button
+                onClick={() => {
+                  setSimulationMode(!simulationMode);
+                  setIsConnected(!simulationMode);
+                  showToast(
+                    !simulationMode ? '🎮 Real-time simulation enabled' : '🔌 PX4 SITL mode enabled',
+                    'info'
+                  );
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  simulationMode ? 'bg-green-500' : 'bg-gray-600'
+                }`}
+                title={simulationMode ? 'Switch to PX4 SITL mode' : 'Switch to simulation mode with live telemetry'}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    simulationMode ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+              {simulationMode && (
+                <span className="text-xs text-green-400 font-semibold">ON</span>
+              )}
+            </div>
+
             {/* Connection Status */}
             <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700">
               <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
               <span className="text-sm text-gray-400">
-                {isConnected ? 'Connected' : 'Disconnected'}
+                {simulationMode ? 'Live Simulation' : isConnected ? 'PX4 Connected' : 'Disconnected'}
               </span>
             </div>
 
             {/* WebSocket Status */}
-            <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700">
-              <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
-              <span className="text-sm text-gray-400">
-                {wsConnected ? 'Live Stream' : 'Polling'}
-              </span>
-            </div>
+            {!simulationMode && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-gray-800 rounded-lg border border-gray-700">
+                <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`} />
+                <span className="text-sm text-gray-400">
+                  {wsConnected ? 'Live Stream' : 'Polling'}
+                </span>
+              </div>
+            )}
+
+            {simulationMode && simulationRunning && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-green-800/30 rounded-lg border border-green-700">
+                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                <span className="text-sm text-green-400 font-semibold">
+                  Tracking: 10 Hz
+                </span>
+              </div>
+            )}
             
-            {!isConnected && (
+            {!isConnected && !simulationMode && (
               <button
                 onClick={connectToSimulator}
                 disabled={loading.connect}
@@ -1337,6 +1672,27 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
             )}
           </div>
         </div>
+
+        {/* 🆕 Mission Progress Bar */}
+        {simulationRunning && (
+          <div className="mt-4 px-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-gray-300 font-semibold">Mission Progress</span>
+              <span className="text-sm text-green-400 font-bold">{Number(missionProgress).toFixed(1)}%</span>
+            </div>
+            <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-blue-500 to-green-500 transition-all duration-300 ease-out"
+                style={{ width: `${missionProgress}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
+              <span>Waypoint: {currentWaypointIndex + 1} / {validWaypoints.length}</span>
+              <span>Distance to next: {Number(distanceToNextWaypoint).toFixed(1)}m</span>
+              <span>ETA: {formatETA(estimatedTimeToWaypoint)}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -1360,7 +1716,8 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
                 positions={pathCoordinates}
                 color="#22c55e"
                 weight={3}
-                opacity={0.6}
+                opacity={0.8}
+                className="flight-path-trail"
               />
             )}
 
@@ -1368,21 +1725,34 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
               <>
                 {validWaypoints.map((wp, index) => {
                   const lng = getWaypointLongitude(wp)!;
+                  const wpStatus = waypointStatuses.find(s => s.index === index);
+                  const status = wpStatus?.status || 'pending';
+                  
                   return (
                     <Marker
                       key={`wp-${index}`}
                       position={[wp.lat, lng]}
-                      icon={createWaypointIcon(index, status?.mission_current === index + 1)}
+                      icon={createWaypointIcon(index, status)}
                     >
                       <Popup>
                         <div className="text-xs">
                           <strong>Waypoint {index + 1}</strong>
                           {wp.name && <><br />{wp.name}</>}
                           <br />
-                          Lat: {wp.lat.toFixed(6)}
+                          Lat: {Number(wp.lat).toFixed(6)}
                           <br />
-                          Lon: {lng.toFixed(6)}
-                          {wp.alt && <><br />Alt: {wp.alt} m</>}
+                          Lon: {Number(lng).toFixed(6)}
+                          {wp.alt && <><br />Alt: {Number(wp.alt).toFixed(1)} m</>}
+                          <br />
+                          Status: <span className={`font-semibold ${
+                            status === 'completed' ? 'text-green-600' : 
+                            status === 'active' ? 'text-blue-600' : 
+                            'text-gray-600'
+                          }`}>
+                            {status === 'completed' ? '✅ Completed' : 
+                             status === 'active' ? '🧭 Active' : 
+                             '○ Pending'}
+                          </span>
                         </div>
                       </Popup>
                     </Marker>
@@ -1413,7 +1783,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           <TelemetryDisplay 
             telemetry={telemetry}
             status={status}
-            wsConnected={wsConnected}
+            wsConnected={wsConnected || simulationMode}
             lastUpdate={lastTelemetryUpdate}     
             updateFrequency={updateFrequency}     
             isPulsing={telemetryPulse}            
@@ -1423,6 +1793,24 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
         {/* Control Panel */}
         <div className="w-96 bg-gray-900 border-l border-gray-800 p-6 overflow-y-auto">
           <h2 className="text-xl font-bold text-white mb-6">Mission Controls</h2>
+
+          {simulationMode && (
+            <div className="mb-6 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <PlayCircle size={20} className="text-green-400" />
+                <span className="text-sm font-semibold text-green-400">Simulation Mode Active</span>
+              </div>
+              <p className="text-xs text-gray-400 mb-2">
+                Test missions with realistic flight simulation. Watch real-time telemetry, waypoint tracking, and mission progress.
+              </p>
+              <div className="flex flex-wrap gap-2 mt-2">
+                <span className="text-xs px-2 py-1 bg-green-500/20 text-green-300 rounded">📊 Live Telemetry</span>
+                <span className="text-xs px-2 py-1 bg-blue-500/20 text-blue-300 rounded">🗺️ Real-time Map</span>
+                <span className="text-xs px-2 py-1 bg-purple-500/20 text-purple-300 rounded">🧭 Waypoint Status</span>
+                <span className="text-xs px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded">⚡ Progress Tracking</span>
+              </div>
+            </div>
+          )}
 
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-400 mb-2">Mission ID</label>
@@ -1434,6 +1822,22 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
               placeholder="Enter mission ID"
             />
           </div>
+
+          {simulationMode && (
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                Simulated Speed (m/s)
+              </label>
+              <input
+                type="number"
+                value={simulatedSpeed}
+                onChange={(e) => setSimulatedSpeed(Number(e.target.value))}
+                min="1"
+                max="50"
+                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          )}
 
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-400 mb-2">Takeoff Altitude (m)</label>
@@ -1448,7 +1852,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           </div>
 
           <div className="space-y-3">
-            {/* Upload Mission Button - NEW */}
+            {/* Upload Mission Button */}
             <button
               onClick={handleUploadMission}
               disabled={!isConnected || !currentMissionId || loading.upload}
@@ -1466,37 +1870,37 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
               ) : missionUploaded ? (
                 <>
                   <span>✓</span>
-                  Mission Uploaded to PX4
+                  Mission {simulationMode ? 'Loaded' : 'Uploaded to PX4'}
                 </>
               ) : (
                 <>
                   <Upload size={20} />
-                  Upload Mission to PX4
+                  {simulationMode ? 'Load Mission' : 'Upload Mission to PX4'}
                 </>
               )}
             </button>
 
             <button
               onClick={handleStartMission}
-              disabled={!isConnected || !missionUploaded || loading.start}
+              disabled={!isConnected || !missionUploaded || loading.start || simulationRunning}
               className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
             >
-              {loading.start ? (
+              {loading.start || simulationRunning ? (
                 <>
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Starting...
+                  {simulationRunning ? 'Running...' : 'Starting...'}
                 </>
               ) : (
                 <>
-                  <span>▶️</span>
-                  Start Mission
+                  <PlayCircle size={20} />
+                  Start {simulationMode ? 'Simulation' : 'Mission'}
                 </>
               )}
             </button>
 
             <button
               onClick={handleStopMission}
-              disabled={!isConnected || !status?.mission_active || loading.stop}
+              disabled={!isConnected || (!status?.mission_active && !simulationRunning) || loading.stop}
               className="w-full px-4 py-3 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
             >
               {loading.stop ? (
@@ -1506,106 +1910,116 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
                 </>
               ) : (
                 <>
-                  <span>⏹️</span>
-                  Stop Mission
+                  <StopCircle size={20} />
+                  Stop {simulationMode ? 'Simulation' : 'Mission'}
                 </>
               )}
             </button>
 
-            <button
-              onClick={handleArm}
-              disabled={!isConnected || status?.armed || loading.arm}
-              className="w-full px-4 py-3 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {loading.arm ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Arming...
-                </>
-              ) : (
-                <>
-                  <span>🔓</span>
-                  Arm Vehicle
-                </>
-              )}
-            </button>
+            {!simulationMode && (
+              <>
+                <button
+                  onClick={handleArm}
+                  disabled={!isConnected || status?.armed || loading.arm}
+                  className="w-full px-4 py-3 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading.arm ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Arming...
+                    </>
+                  ) : (
+                    <>
+                      <span>🔓</span>
+                      Arm Vehicle
+                    </>
+                  )}
+                </button>
 
-            <button
-              onClick={handleDisarm}
-              disabled={!isConnected || !status?.armed || loading.disarm}
-              className="w-full px-4 py-3 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {loading.disarm ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Disarming...
-                </>
-              ) : (
-                <>
-                  <span>🔒</span>
-                  Disarm Vehicle
-                </>
-              )}
-            </button>
+                <button
+                  onClick={handleDisarm}
+                  disabled={!isConnected || !status?.armed || loading.disarm}
+                  className="w-full px-4 py-3 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading.disarm ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Disarming...
+                    </>
+                  ) : (
+                    <>
+                      <span>🔒</span>
+                      Disarm Vehicle
+                    </>
+                  )}
+                </button>
 
-            <button
-              onClick={handleTakeoff}
-              disabled={!isConnected || !status?.armed || status?.flying || loading.takeoff}
-              className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {loading.takeoff ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Taking Off...
-                </>
-              ) : (
-                <>
-                  <span>🚀</span>
-                  Takeoff
-                </>
-              )}
-            </button>
+                <button
+                  onClick={handleTakeoff}
+                  disabled={!isConnected || !status?.armed || status?.flying || loading.takeoff}
+                  className="w-full px-4 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading.takeoff ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Taking Off...
+                    </>
+                  ) : (
+                    <>
+                      <span>🚀</span>
+                      Takeoff
+                    </>
+                  )}
+                </button>
 
-            <button
-              onClick={handleLand}
-              disabled={!isConnected || !status?.flying || loading.land}
-              className="w-full px-4 py-3 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {loading.land ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Landing...
-                </>
-              ) : (
-                <>
-                  <span>⬇️</span>
-                  Land
-                </>
-              )}
-            </button>
+                <button
+                  onClick={handleLand}
+                  disabled={!isConnected || !status?.flying || loading.land}
+                  className="w-full px-4 py-3 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading.land ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Landing...
+                    </>
+                  ) : (
+                    <>
+                      <span>⬇️</span>
+                      Land
+                    </>
+                  )}
+                </button>
 
-            <button
-              onClick={handleRTL}
-              disabled={!isConnected || !status?.flying || loading.rtl}
-              className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
-            >
-              {loading.rtl ? (
-                <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Returning...
-                </>
-              ) : (
-                <>
-                  <span>🏠</span>
-                  Return to Launch
-                </>
-              )}
-            </button>
+                <button
+                  onClick={handleRTL}
+                  disabled={!isConnected || !status?.flying || loading.rtl}
+                  className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  {loading.rtl ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Returning...
+                    </>
+                  ) : (
+                    <>
+                      <span>🏠</span>
+                      Return to Launch
+                    </>
+                  )}
+                </button>
+              </>
+            )}
           </div>
 
           <div className="mt-6 p-4 bg-gray-800 rounded-lg border border-gray-700">
             <h3 className="text-sm font-semibold text-white mb-3">System Status</h3>
             <div className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-gray-400">Mode:</span>
+                <span className={simulationMode ? 'text-green-400' : 'text-blue-400'}>
+                  {simulationMode ? '🎮 Real-time Simulation' : '🔌 PX4 SITL'}
+                </span>
+              </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Connected:</span>
                 <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
@@ -1614,16 +2028,39 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Telemetry:</span>
-                <span className={wsConnected ? 'text-green-400' : 'text-yellow-400'}>
-                  {wsConnected ? 'WebSocket' : 'HTTP Polling'}
+                <span className={(wsConnected || simulationMode) ? 'text-green-400' : 'text-yellow-400'}>
+                  {simulationMode ? '✓ Live Stream (10 Hz)' : wsConnected ? 'WebSocket' : 'HTTP Polling'}
                 </span>
               </div>
+              {simulationMode && simulationRunning && (
+                <>
+                  <div className="h-px bg-gray-700 my-2"></div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Real-time Tracking:</span>
+                    <span className="text-cyan-400">Active</span>
+                  </div>
+                  <div className="pl-2 space-y-1 text-[10px] text-gray-500">
+                    <div>• Position updates (10 Hz)</div>
+                    <div>• Velocity calculations</div>
+                    <div>• Attitude orientation</div>
+                    <div>• Battery drain simulation</div>
+                    <div>• GPS satellite tracking</div>
+                  </div>
+                </>
+              )}
+              <div className="h-px bg-gray-700 my-2"></div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Mission Uploaded:</span>
                 <span className={missionUploaded ? 'text-green-400' : 'text-orange-400'}>
                   {missionUploaded ? 'Yes' : 'No'}
                 </span>
               </div>
+              {simulationRunning && (
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Simulation:</span>
+                  <span className="text-green-400 animate-pulse">● Running</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-gray-400">Armed:</span>
                 <span className={status?.armed ? 'text-yellow-400' : 'text-gray-500'}>
@@ -1638,8 +2075,8 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Mission Active:</span>
-                <span className={status?.mission_active ? 'text-blue-400' : 'text-gray-500'}>
-                  {status?.mission_active ? 'Yes' : 'No'}
+                <span className={(status?.mission_active || simulationRunning) ? 'text-blue-400' : 'text-gray-500'}>
+                  {(status?.mission_active || simulationRunning) ? 'Yes' : 'No'}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -1657,13 +2094,13 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
             <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
               <div className="text-xs text-gray-400 mb-1">Altitude</div>
               <div className="text-lg font-bold text-white">
-                {(telemetry?.position?.alt || status?.current_position?.alt || 0).toFixed(1)}m
+                {Number(telemetry?.position?.alt || status?.current_position?.alt || 0).toFixed(1)}m
               </div>
             </div>
             <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
               <div className="text-xs text-gray-400 mb-1">Battery</div>
               <div className="text-lg font-bold text-white">
-                {(telemetry?.battery?.remaining || status?.battery_level || 0).toFixed(0)}%
+                {Number(telemetry?.battery?.remaining || status?.battery_level || 0).toFixed(0)}%
               </div>
             </div>
           </div>
@@ -1701,9 +2138,33 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
             box-shadow: 0 4px 20px rgba(245, 158, 11, 0.5);
           }
         }
+
+        @keyframes pulse-icon {
+          0%, 100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.1);
+          }
+        }
+
+        @keyframes pulse-ring {
+          0% {
+            transform: scale(1);
+            opacity: 0.5;
+          }
+          100% {
+            transform: scale(1.5);
+            opacity: 0;
+          }
+        }
         
         .toast-confirmation {
           animation: slideIn 0.3s ease, pulse 2s ease-in-out infinite;
+        }
+
+        .flight-path-trail {
+          filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.6));
         }
       `}</style>
     </div>

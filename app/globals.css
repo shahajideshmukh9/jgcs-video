@@ -97,3 +97,29 @@ code {
 .custom-icon { background: transparent !important; }
 .leaflet-container { background: #1a1a1a; }
 .leaflet-popup-content-wrapper { background: #1f2937; color: #f3f4f6; }
+
+/* Situational Awareness Custom Styles */
+.drone-marker { background: transparent !important; border: none !important; }
+.waypoint-marker { background: transparent !important; border: none !important; }
+.mission-waypoint-marker { background: transparent !important; border: none !important; }
+.mission-start-marker { background: transparent !important; border: none !important; }
+.mission-end-marker { background: transparent !important; border: none !important; }
+
+.leaflet-popup-content-wrapper {
+  background-color: #1e293b !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3) !important;
+}
+
+.leaflet-popup-tip { background-color: #1e293b !important; }
+.leaflet-popup-content { color: #fff !important; margin: 8px 12px !important; }
+
+.leaflet-tooltip {
+  background-color: rgba(30, 41, 59, 0.95) !important;
+  border: 1px solid #475569 !important;
+  color: #fff !important;
+  border-radius: 4px !important;
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
