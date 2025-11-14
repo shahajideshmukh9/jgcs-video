@@ -184,23 +184,48 @@ export default function MissionListComponent({
     }
   }
 
-  // 🔵 ORIGINAL: Handle visualizing mission on flight monitor (KEPT)
-  const handleVisualizeMission = (mission: ApiMission) => {
-    if (onVisualizeMission) {
-      onVisualizeMission(mission)
+  // 🎯 Handle viewing/simulating mission in Multi-Drone Awareness page
+  const handleMultiDroneVisualize = (mission: ApiMission) => {
+    try {
+      console.log('Opening mission in Multi-Drone Awareness:', mission)
+      
+      // Store mission data in sessionStorage for the multi-drone page
+      sessionStorage.setItem('selectedMission', JSON.stringify({
+        id: mission.id,
+        mission_name: mission.mission_name,
+        mission_type: mission.mission_type,
+        corridor_label: mission.corridor_label,
+        corridor_value: mission.corridor_value,
+        corridor_color: mission.corridor_color,
+        status: mission.status,
+        waypoints: mission.waypoints || [],
+        total_distance: mission.total_distance,
+        flight_time: mission.flight_time,
+        battery_usage: mission.battery_usage,
+        created_at: mission.created_at,
+        updated_at: mission.updated_at
+      }))
+      
+      // Redirect to multi-drone awareness page with mission ID
+      router.push(`/multi-drone-awareness?missionId=${mission.id}&mode=simulate`)
+    } catch (err) {
+      console.error('Error opening mission in Multi-Drone Awareness:', err)
+      alert('Failed to open mission. Please try again.')
     }
   }
 
-  // 🟢 NEW: Handle simulating mission with direct redirect to situational awareness
+  // 🔵 Handle simulating mission (legacy flight monitor compatibility)
   const handleSimulateMission = (mission: ApiMission) => {
     try {
       console.log('Simulating mission:', mission)
       
-      // Store mission data in sessionStorage for the situational awareness page
-      sessionStorage.setItem('visualizeMission', JSON.stringify(mission))
-      
-      // Redirect to situational awareness page with simulation mode
-      router.push(`/situational-awareness?mode=simulate&missionId=${mission.id}`)
+      // Use the onVisualizeMission callback if provided (for legacy components)
+      if (onVisualizeMission) {
+        onVisualizeMission(mission)
+      } else {
+        // Otherwise, redirect to multi-drone awareness
+        handleMultiDroneVisualize(mission)
+      }
     } catch (err) {
       console.error('Error simulating mission:', err)
       alert('Failed to simulate mission. Please try again.')
@@ -544,34 +569,32 @@ export default function MissionListComponent({
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center space-x-2">
-                            {/* 🟢 NEW: SIMULATE BUTTON - Green Map icon with redirect to SA */}
+                            {/* 🎯 PRIMARY: Multi-Drone Awareness Button */}
                             <button
-                              onClick={() => handleSimulateMission(mission)}
-                              className="p-2 text-emerald-400 hover:bg-slate-600 rounded transition-colors group relative"
-                              title="Simulate Mission"
+                              onClick={() => handleMultiDroneVisualize(mission)}
+                              className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md"
+                              title="View in Multi-Drone Awareness"
                             >
-                              <Map size={18} />
-                              <span className="absolute hidden group-hover:block bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-xs text-white rounded whitespace-nowrap z-10 shadow-lg">
-                                Simulate Mission
-                              </span>
+                              <Map size={16} />
+                              <span className="text-sm font-medium">Multi-Drone</span>
                             </button>
 
-                            {/* 🔵 ORIGINAL: VISUALIZE BUTTON - Purple Plane icon (KEPT) */}
+                            {/* 🔵 SIMULATE: Simulate in legacy flight monitor */}
                             <button
-                              onClick={() => handleVisualizeMission(mission)}
-                              className="p-2 text-purple-400 hover:bg-slate-600 rounded transition-colors group relative"
-                              title="Visualize on Flight Monitor"
+                              onClick={() => handleSimulateMission(mission)}
+                              className="p-2 text-emerald-400 hover:bg-slate-600 rounded-lg transition-colors group relative"
+                              title="Simulate Mission"
                             >
                               <Plane size={18} />
-                              <span className="absolute hidden group-hover:block bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-xs text-white rounded whitespace-nowrap z-10">
-                                Flight Monitor
+                              <span className="absolute hidden group-hover:block bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-slate-900 text-xs text-white rounded whitespace-nowrap z-10 shadow-lg">
+                                Simulate
                               </span>
                             </button>
 
                             {/* VIEW BUTTON - Always visible */}
                             <button
                               onClick={() => handleViewMission(mission)}
-                              className="p-2 text-blue-400 hover:bg-slate-600 rounded transition-colors"
+                              className="p-2 text-blue-400 hover:bg-slate-600 rounded-lg transition-colors"
                               title="View Mission"
                             >
                               <Eye size={18} />
@@ -582,7 +605,7 @@ export default function MissionListComponent({
                              mission.status?.toLowerCase() !== 'in_progress' && (
                               <button
                                 onClick={() => handleEditMission(mission)}
-                                className="p-2 text-yellow-400 hover:bg-slate-600 rounded transition-colors"
+                                className="p-2 text-yellow-400 hover:bg-slate-600 rounded-lg transition-colors"
                                 title="Edit Mission"
                               >
                                 <Edit size={18} />
@@ -595,7 +618,7 @@ export default function MissionListComponent({
                               mission.status?.toLowerCase() === 'failed') && (
                               <button
                                 onClick={() => handleDelete(mission.id, mission.mission_name)}
-                                className="p-2 text-red-400 hover:bg-slate-600 rounded transition-colors"
+                                className="p-2 text-red-400 hover:bg-slate-600 rounded-lg transition-colors"
                                 title="Delete Mission"
                               >
                                 <Trash2 size={18} />
