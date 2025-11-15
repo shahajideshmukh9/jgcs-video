@@ -154,6 +154,44 @@ const interpolatePosition = (
 };
 
 // ============================================================================
+// VELOCITY VECTOR COMPONENT
+// ============================================================================
+
+const VelocityVector: React.FC<{
+  position: [number, number];
+  velocity: { vx: number; vy: number };
+  color?: string;
+}> = ({ position, velocity, color = '#22c55e' }) => {
+  const speed = Math.sqrt(velocity.vx ** 2 + velocity.vy ** 2);
+  
+  if (speed < 0.5) return null; // Don't show for very low speeds
+  
+  // Calculate end point for velocity vector (scaled for visibility)
+  const scale = 0.00005; // Adjust this to change vector length
+  const endLat = position[0] + velocity.vy * scale;
+  const endLon = position[1] + velocity.vx * scale;
+  
+  return (
+    <Polyline
+      positions={[position, [endLat, endLon]]}
+      color={color}
+      weight={3}
+      opacity={0.8}
+      dashArray="5, 5"
+    >
+      <Popup>
+        <div className="text-xs">
+          <strong>Velocity Vector</strong><br />
+          Speed: {speed.toFixed(2)} m/s<br />
+          Vx: {velocity.vx.toFixed(2)} m/s<br />
+          Vy: {velocity.vy.toFixed(2)} m/s
+        </div>
+      </Popup>
+    </Polyline>
+  );
+};
+
+// ============================================================================
 // MAP UPDATE COMPONENT
 // ============================================================================
 
@@ -191,7 +229,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   const [loading, setLoading] = useState<{[key: string]: boolean}>({});
   const [missionUploaded, setMissionUploaded] = useState<boolean>(false);
   
-  // 🆕 SIMULATION MODE STATE
+  // SIMULATION MODE STATE
   const [simulationMode, setSimulationMode] = useState<boolean>(false);
   const [simulationRunning, setSimulationRunning] = useState<boolean>(false);
   const [waypointStatuses, setWaypointStatuses] = useState<WaypointStatus[]>([]);
@@ -213,7 +251,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   const WS_BASE = process.env.NEXT_PUBLIC_DRONE_WS_URL || 'ws://localhost:7000';
   
   // ============================================================================
-  // 🆕 SIMULATION MODE FUNCTIONS
+  // SIMULATION MODE FUNCTIONS
   // ============================================================================
 
   const initializeWaypointStatuses = () => {
@@ -1005,6 +1043,25 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
     }
   };
 
+  const [missionStatus, setMissionStatus] = useState<{
+    isActive: boolean;
+    isReceivingData: boolean;
+    lastUpdateTime: Date | null;
+    dataFlowRate: number;
+    subscriptionStatus: 'idle' | 'subscribing' | 'subscribed' | 'failed';
+    errorMessage: string | null;}>({
+    isActive: false,
+    isReceivingData: false,
+    lastUpdateTime: null,
+    dataFlowRate: 0,
+    subscriptionStatus: 'idle',
+    errorMessage: null
+  });
+
+  const telemetryCountRef = useRef<number>(0);
+  const lastTelemetryTimeRef = useRef<number>(Date.now());
+  const dataFlowIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleArm = () => {
     if (!currentMissionId) {
       showToast('No mission selected. Please load a mission first.', 'error');
@@ -1228,12 +1285,13 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   };
 
   // ============================================================================
-  // CUSTOM ICONS
+  // CUSTOM ICONS - QGC STYLE
   // ============================================================================
 
   const createDroneIcon = (armed: boolean, flying: boolean, yaw: number = 0) => {
     const color = flying ? '#22c55e' : armed ? '#eab308' : '#3b82f6';
-    const size = flying ? 40 : 32;
+    const size = flying ? 48 : 40;
+    const pulseEffect = flying ? 'animation: drone-pulse 2s ease-in-out infinite;' : '';
     
     return L.divIcon({
       className: 'custom-drone-icon',
@@ -1245,19 +1303,62 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: transform 0.3s ease;
+          transition: transform 0.1s linear;
+          ${pulseEffect}
         ">
-          <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="12" cy="12" r="3" fill="${color}" stroke="white" stroke-width="1"/>
-            <line x1="12" y1="12" x2="6" y2="6" stroke="${color}" stroke-width="2"/>
-            <line x1="12" y1="12" x2="18" y2="6" stroke="${color}" stroke-width="2"/>
-            <line x1="12" y1="12" x2="6" y2="18" stroke="${color}" stroke-width="2"/>
-            <line x1="12" y1="12" x2="18" y2="18" stroke="${color}" stroke-width="2"/>
-            <circle cx="6" cy="6" r="2.5" fill="${color}" opacity="0.6"/>
-            <circle cx="18" cy="6" r="2.5" fill="${color}" opacity="0.6"/>
-            <circle cx="6" cy="18" r="2.5" fill="${color}" opacity="0.6"/>
-            <circle cx="18" cy="18" r="2.5" fill="${color}" opacity="0.6"/>
-            <path d="M 12 9 L 14 7 L 12 5 L 10 7 Z" fill="white"/>
+          <!-- QGC-Style Aircraft Icon -->
+          <svg width="${size}" height="${size}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Shadow/Glow Effect -->
+            <defs>
+              <filter id="glow-${yaw}">
+                <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                <feMerge>
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+              <linearGradient id="bodyGradient-${yaw}" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" style="stop-color:${color};stop-opacity:1" />
+                <stop offset="100%" style="stop-color:${color};stop-opacity:0.6" />
+              </linearGradient>
+            </defs>
+            
+            <!-- Aircraft Body (Fuselage) -->
+            <ellipse cx="32" cy="32" rx="6" ry="14" fill="url(#bodyGradient-${yaw})" filter="url(#glow-${yaw})"/>
+            
+            <!-- Front Arms (Quadcopter) -->
+            <line x1="32" y1="32" x2="18" y2="18" stroke="${color}" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+            <line x1="32" y1="32" x2="46" y2="18" stroke="${color}" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+            
+            <!-- Rear Arms (Quadcopter) -->
+            <line x1="32" y1="32" x2="18" y2="46" stroke="${color}" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+            <line x1="32" y1="32" x2="46" y2="46" stroke="${color}" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+            
+            <!-- Motors/Propellers -->
+            <circle cx="18" cy="18" r="5" fill="${color}" stroke="white" stroke-width="1.5" opacity="0.8">
+              ${flying ? '<animateTransform attributeName="transform" type="rotate" from="0 18 18" to="360 18 18" dur="0.2s" repeatCount="indefinite"/>' : ''}
+            </circle>
+            <circle cx="46" cy="18" r="5" fill="${color}" stroke="white" stroke-width="1.5" opacity="0.8">
+              ${flying ? '<animateTransform attributeName="transform" type="rotate" from="0 46 18" to="360 46 18" dur="0.2s" repeatCount="indefinite"/>' : ''}
+            </circle>
+            <circle cx="18" cy="46" r="5" fill="${color}" stroke="white" stroke-width="1.5" opacity="0.8">
+              ${flying ? '<animateTransform attributeName="transform" type="rotate" from="0 18 46" to="360 18 46" dur="0.2s" repeatCount="indefinite"/>' : ''}
+            </circle>
+            <circle cx="46" cy="46" r="5" fill="${color}" stroke="white" stroke-width="1.5" opacity="0.8">
+              ${flying ? '<animateTransform attributeName="transform" type="rotate" from="0 46 46" to="360 46 46" dur="0.2s" repeatCount="indefinite"/>' : ''}
+            </circle>
+            
+            <!-- Center Body Highlight -->
+            <circle cx="32" cy="32" r="4" fill="white" opacity="0.9"/>
+            <circle cx="32" cy="32" r="2.5" fill="${color}"/>
+            
+            <!-- Direction Indicator (Nose) -->
+            <path d="M 32 18 L 34 22 L 32 14 L 30 22 Z" fill="white" stroke="white" stroke-width="0.5"/>
+            
+            <!-- Status Ring -->
+            <circle cx="32" cy="32" r="20" fill="none" stroke="${color}" stroke-width="1.5" opacity="0.3" stroke-dasharray="4,4">
+              ${flying ? '<animate attributeName="stroke-dashoffset" from="0" to="8" dur="1s" repeatCount="indefinite"/>' : ''}
+            </circle>
           </svg>
         </div>
       `,
@@ -1483,8 +1584,15 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           return updated.slice(-500);
         });
         
-        if (status?.flying) {
-          setMapCenter([lat, lon]);
+        // Smooth map centering with interpolation
+        if (status?.flying || simulationRunning) {
+          setMapCenter(prevCenter => {
+            // Smooth transition (exponential moving average)
+            const smoothingFactor = 0.3;
+            const newLat = prevCenter[0] + (lat - prevCenter[0]) * smoothingFactor;
+            const newLon = prevCenter[1] + (lon - prevCenter[1]) * smoothingFactor;
+            return [newLat, newLon];
+          });
         }
       }
     }
@@ -1599,7 +1707,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           </div>
           
           <div className="flex items-center gap-4">
-            {/* 🆕 Simulation Mode Toggle */}
+            {/* Simulation Mode Toggle */}
             <div className="flex items-center gap-3 px-4 py-2 bg-gray-800 rounded-lg border border-gray-700">
               <span className="text-sm text-gray-400">Real-time Simulation:</span>
               <button
@@ -1673,7 +1781,7 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
           </div>
         </div>
 
-        {/* 🆕 Mission Progress Bar */}
+        {/* Mission Progress Bar */}
         {simulationRunning && (
           <div className="mt-4 px-4">
             <div className="flex items-center justify-between mb-2">
@@ -1769,6 +1877,8 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
             )}
             
             <Marker position={homePosition} icon={createHomeIcon()} />
+            
+            {/* QGC-Style Drone Marker with smooth rotation */}
             <Marker
               position={dronePosition}
               icon={createDroneIcon(
@@ -1776,7 +1886,40 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
                 status?.flying || false,
                 telemetry?.attitude?.yaw || 0
               )}
-            />
+            >
+              <Popup>
+                <div className="text-xs">
+                  <strong>UAV Position</strong><br />
+                  Lat: {dronePosition[0].toFixed(6)}<br />
+                  Lon: {dronePosition[1].toFixed(6)}<br />
+                  Alt: {(telemetry?.position?.alt || 0).toFixed(1)} m<br />
+                  {telemetry?.attitude && (
+                    <>
+                      Roll: {telemetry.attitude.roll.toFixed(1)}°<br />
+                      Pitch: {telemetry.attitude.pitch.toFixed(1)}°<br />
+                      Yaw: {telemetry.attitude.yaw.toFixed(1)}°<br />
+                    </>
+                  )}
+                  {telemetry?.velocity && (
+                    <>
+                      Speed: {Math.sqrt(
+                        telemetry.velocity.vx ** 2 + 
+                        telemetry.velocity.vy ** 2
+                      ).toFixed(2)} m/s
+                    </>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+
+            {/* Velocity Vector */}
+            {telemetry?.velocity && (status?.flying || simulationRunning) && (
+              <VelocityVector
+                position={dronePosition}
+                velocity={telemetry.velocity}
+                color="#22c55e"
+              />
+            )}
           </MapContainer>
 
           {/* Telemetry Display */}
@@ -2158,6 +2301,15 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
             opacity: 0;
           }
         }
+
+        @keyframes drone-pulse {
+          0%, 100% {
+            filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.6));
+          }
+          50% {
+            filter: drop-shadow(0 0 16px rgba(34, 197, 94, 0.9));
+          }
+        }
         
         .toast-confirmation {
           animation: slideIn 0.3s ease, pulse 2s ease-in-out infinite;
@@ -2165,6 +2317,15 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
 
         .flight-path-trail {
           filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.6));
+        }
+
+        .custom-drone-icon {
+          transition: all 0.1s linear;
+        }
+
+        /* Leaflet marker smooth transitions */
+        .leaflet-marker-icon {
+          transition: transform 0.1s linear !important;
         }
       `}</style>
     </div>

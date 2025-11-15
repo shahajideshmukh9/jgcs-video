@@ -1,8 +1,61 @@
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+
+interface Position {
+  lat?: number;
+  lon?: number;
+  alt?: number;
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
+}
+
+interface Battery {
+  voltage?: number;
+  current?: number;
+  remaining?: number;
+  level?: number;
+}
+
+interface GPS {
+  satellites?: number;
+  num_satellites?: number;
+  fix_type?: number;
+  hdop?: number;
+}
+
+interface Telemetry {
+  position?: Position;
+  battery?: Battery;
+  gps?: GPS;
+  flight_mode?: string;
+  attitude?: {
+    roll?: number;
+    pitch?: number;
+    yaw?: number;
+  };
+  velocity?: {
+    vx?: number;
+    vy?: number;
+    vz?: number;
+    ground_speed?: number;
+  };
+}
+
+interface Status {
+  connected?: boolean;
+  armed?: boolean;
+  flying?: boolean;
+  current_position?: Position;
+  battery_level?: number;
+  flight_mode?: string;
+  mission_active?: boolean;
+  mission_current?: number;
+  mission_count?: number;
+}
 
 interface TelemetryDisplayProps {
-  telemetry: any;
-  status: any;
+  telemetry: Telemetry | null;
+  status: Status | null;
   wsConnected: boolean;
   lastUpdate?: number;
   updateFrequency?: number;
@@ -18,45 +71,105 @@ const TelemetryDisplay: React.FC<TelemetryDisplayProps> = ({
   isPulsing = false
 }) => {
   
-  // Helper function to format time ago
+  const [updateCount, setUpdateCount] = useState(0);
+  const prevTelemetryRef = useRef<Telemetry | null>(null);
+
+  useEffect(() => {
+    if (telemetry && telemetry !== prevTelemetryRef.current) {
+      setUpdateCount(prev => prev + 1);
+      prevTelemetryRef.current = telemetry;
+    }
+  }, [telemetry]);
+
   const formatTimeAgo = (timestamp?: number): string => {
     if (!timestamp) return 'N/A';
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
-    
     if (seconds < 1) return 'Just now';
     if (seconds === 1) return '1 second ago';
     if (seconds < 60) return `${seconds} seconds ago`;
-    
     const minutes = Math.floor(seconds / 60);
     if (minutes === 1) return '1 minute ago';
     if (minutes < 60) return `${minutes} minutes ago`;
-    
     const hours = Math.floor(minutes / 60);
     if (hours === 1) return '1 hour ago';
     return `${hours} hours ago`;
   };
 
-  // Helper to get data freshness color
   const getDataFreshnessColor = (timestamp?: number): string => {
     if (!timestamp) return 'text-gray-400';
     const ageMs = Date.now() - timestamp;
-    
-    if (ageMs < 1000) return 'text-green-400';      // < 1s - Fresh
-    if (ageMs < 3000) return 'text-yellow-400';     // < 3s - Acceptable  
-    if (ageMs < 10000) return 'text-orange-400';    // < 10s - Stale
-    return 'text-red-400';                           // > 10s - Very stale
+    if (ageMs < 1000) return 'text-green-400';
+    if (ageMs < 3000) return 'text-yellow-400';
+    if (ageMs < 10000) return 'text-orange-400';
+    return 'text-red-400';
   };
+
+  const getPositionValue = (field: 'lat' | 'lon' | 'alt'): number => {
+    const telemetryPos = telemetry?.position;
+    const statusPos = status?.current_position;
+    
+    if (field === 'lat') {
+      return Number(telemetryPos?.lat ?? telemetryPos?.latitude ?? statusPos?.lat ?? statusPos?.latitude ?? 0);
+    } else if (field === 'lon') {
+      return Number(telemetryPos?.lon ?? telemetryPos?.longitude ?? statusPos?.lon ?? statusPos?.longitude ?? 0);
+    } else {
+      return Number(telemetryPos?.alt ?? telemetryPos?.altitude ?? statusPos?.alt ?? statusPos?.altitude ?? 0);
+    }
+  };
+
+  const getBatteryRemaining = (): number => {
+    return Number(telemetry?.battery?.remaining ?? telemetry?.battery?.level ?? status?.battery_level ?? 0);
+  };
+
+  const getSatelliteCount = (): number => {
+    return Number(telemetry?.gps?.satellites ?? telemetry?.gps?.num_satellites ?? 0);
+  };
+
+  const getGPSFixType = (): number => {
+    return Number(telemetry?.gps?.fix_type ?? 0);
+  };
+
+  const getGPSFixString = (fixType: number): string => {
+    if (fixType >= 3) return '3D FIX';
+    if (fixType === 2) return '2D FIX';
+    return 'NO FIX';
+  };
+
+  const getBatteryColor = (remaining: number): string => {
+    if (remaining > 50) return 'text-green-400';
+    if (remaining > 20) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
+  const getBatteryBarColor = (remaining: number): string => {
+    if (remaining > 50) return 'bg-green-500';
+    if (remaining > 20) return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
+
+  const getGPSColor = (satellites: number): string => {
+    if (satellites >= 8) return 'text-green-400';
+    if (satellites >= 5) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
+  const getGPSFixColor = (fixType: number): string => {
+    return fixType >= 3 ? 'text-green-400' : 'text-yellow-400';
+  };
+
+  const batteryRemaining = getBatteryRemaining();
+  const satelliteCount = getSatelliteCount();
+  const gpsFixType = getGPSFixType();
 
   return (
     <div className={`absolute top-4 right-4 bg-gray-900/95 backdrop-blur-sm rounded-lg border ${
       isPulsing ? 'border-green-500 shadow-lg shadow-green-500/50' : 'border-gray-700'
     } w-[380px] max-h-[calc(100vh-120px)] overflow-y-auto z-[1000] shadow-2xl transition-all duration-200`}>
-      {/* Header */}
+      
       <div className="sticky top-0 bg-gray-900 p-4 border-b border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold text-white">Live Telemetry</h3>
           <div className="flex items-center gap-2">
-            {/* Connection Status */}
             <span className={`text-xs flex items-center gap-1 ${
               status?.connected ? 'text-green-400' : 'text-red-400'
             }`}>
@@ -74,23 +187,26 @@ const TelemetryDisplay: React.FC<TelemetryDisplayProps> = ({
           </div>
         </div>
         
-        {/* Real-time Update Stats */}
         <div className="flex items-center justify-between text-xs">
           <div className={getDataFreshnessColor(lastUpdate)}>
             {formatTimeAgo(lastUpdate)}
           </div>
-          {updateFrequency > 0 && (
-            <div className="text-cyan-400 font-semibold">
-              {updateFrequency} Hz
+          <div className="flex items-center gap-2">
+            {updateFrequency > 0 && (
+              <div className="text-cyan-400 font-semibold">
+                {updateFrequency} Hz
+              </div>
+            )}
+            <div className="text-gray-500 text-[10px]">
+              #{updateCount}
             </div>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* Telemetry Data */}
       <div className="p-4 space-y-4">
         
-        {/* Flight Status Section */}
+        {/* Flight Status */}
         <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
           <h4 className="text-sm font-semibold text-gray-300 mb-2">Flight Status</h4>
           <div className="space-y-2">
@@ -126,121 +242,85 @@ const TelemetryDisplay: React.FC<TelemetryDisplayProps> = ({
           </div>
         </div>
 
-        {/* Position Section */}
+        {/* Position */}
         <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
           <h4 className="text-sm font-semibold text-gray-300 mb-2">Position</h4>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-gray-400 text-xs w-16">Latitude:</span>
               <span className="text-white font-mono text-xs">
-                {Number(telemetry?.position?.lat ?? status?.current_position?.lat ?? 0).toFixed(6)}°
+                {getPositionValue('lat').toFixed(6)}°
               </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-gray-400 text-xs w-16">Longitude:</span>
               <span className="text-white font-mono text-xs">
-                {Number(telemetry?.position?.lon ?? status?.current_position?.lon ?? 0).toFixed(6)}°
+                {getPositionValue('lon').toFixed(6)}°
               </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-gray-400 text-xs w-16">Altitude:</span>
               <span className="text-white font-mono text-xs">
-                {Number(telemetry?.position?.alt ?? status?.current_position?.alt ?? 0).toFixed(2)} m
+                {getPositionValue('alt').toFixed(2)} m
               </span>
             </div>
           </div>
         </div>
 
-        {/* Velocity Section */}
-        <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
-          <h4 className="text-sm font-semibold text-gray-300 mb-2">Velocity</h4>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs w-16">VX (N):</span>
-              <span className="text-white font-mono text-xs">
-                {Number(telemetry?.velocity?.vx ?? 0).toFixed(2)} m/s
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs w-16">VY (E):</span>
-              <span className="text-white font-mono text-xs">
-                {Number(telemetry?.velocity?.vy ?? 0).toFixed(2)} m/s
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs w-16">VZ (D):</span>
-              <span className="text-white font-mono text-xs">
-                {Number(telemetry?.velocity?.vz ?? 0).toFixed(2)} m/s
-              </span>
+        {/* Velocity */}
+        {telemetry?.velocity && (
+          <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
+            <h4 className="text-sm font-semibold text-gray-300 mb-2">Velocity</h4>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-xs w-16">Ground:</span>
+                <span className="text-white font-mono text-xs">
+                  {telemetry.velocity.ground_speed?.toFixed(1) ?? 
+                   Math.sqrt(Math.pow(telemetry.velocity.vx ?? 0, 2) + Math.pow(telemetry.velocity.vy ?? 0, 2)).toFixed(1)} m/s
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-xs w-16">Vertical:</span>
+                <span className="text-white font-mono text-xs">
+                  {(telemetry.velocity.vz ?? 0).toFixed(1)} m/s
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Attitude Section */}
-        <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
-          <h4 className="text-sm font-semibold text-gray-300 mb-2">Attitude</h4>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs w-16">Roll:</span>
-              <span className="text-white font-mono text-xs">
-                {Number(telemetry?.attitude?.roll ?? 0).toFixed(3)}°
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs w-16">Pitch:</span>
-              <span className="text-white font-mono text-xs">
-                {Number(telemetry?.attitude?.pitch ?? 0).toFixed(3)}°
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs w-16">Yaw:</span>
-              <span className="text-white font-mono text-xs">
-                {Number(telemetry?.attitude?.yaw ?? 0).toFixed(3)}°
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Battery Section */}
+        {/* Battery */}
         <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
           <h4 className="text-sm font-semibold text-gray-300 mb-2">Battery</h4>
           <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs w-16">Voltage:</span>
-              <span className="text-white font-mono text-xs">
-                {Number(telemetry?.battery?.voltage ?? 0).toFixed(2)} V
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-xs w-16">Current:</span>
-              <span className="text-white font-mono text-xs">
-                {Number(telemetry?.battery?.current ?? 0).toFixed(2)} A
-              </span>
-            </div>
+            {telemetry?.battery?.voltage !== undefined && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-xs w-16">Voltage:</span>
+                <span className="text-white font-mono text-xs">
+                  {Number(telemetry.battery.voltage).toFixed(2)} V
+                </span>
+              </div>
+            )}
+            {telemetry?.battery?.current !== undefined && (
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 text-xs w-16">Current:</span>
+                <span className="text-white font-mono text-xs">
+                  {Number(telemetry.battery.current).toFixed(2)} A
+                </span>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <span className="text-gray-400 text-xs w-16">Remaining:</span>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className={`font-mono text-xs font-semibold ${
-                    Number(telemetry?.battery?.remaining ?? status?.battery_level ?? 0) > 50 
-                      ? 'text-green-400' 
-                      : Number(telemetry?.battery?.remaining ?? status?.battery_level ?? 0) > 20 
-                        ? 'text-yellow-400' 
-                        : 'text-red-400'
-                  }`}>
-                    {Number(telemetry?.battery?.remaining ?? status?.battery_level ?? 0).toFixed(0)}%
+                  <span className={`font-mono text-xs font-semibold ${getBatteryColor(batteryRemaining)}`}>
+                    {batteryRemaining.toFixed(0)}%
                   </span>
                 </div>
                 <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
                   <div 
-                    className={`h-1.5 rounded-full transition-all ${
-                      Number(telemetry?.battery?.remaining ?? status?.battery_level ?? 0) > 50 
-                        ? 'bg-green-500' 
-                        : Number(telemetry?.battery?.remaining ?? status?.battery_level ?? 0) > 20 
-                          ? 'bg-yellow-500' 
-                          : 'bg-red-500'
-                    }`}
-                    style={{ width: `${Number(telemetry?.battery?.remaining ?? status?.battery_level ?? 0)}%` }}
+                    className={`h-1.5 rounded-full transition-all ${getBatteryBarColor(batteryRemaining)}`}
+                    style={{ width: `${batteryRemaining}%` }}
                   />
                 </div>
               </div>
@@ -248,29 +328,20 @@ const TelemetryDisplay: React.FC<TelemetryDisplayProps> = ({
           </div>
         </div>
 
-        {/* GPS Section */}
+        {/* GPS */}
         <div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
           <h4 className="text-sm font-semibold text-gray-300 mb-2">GPS</h4>
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-gray-400 text-xs w-16">Satellites:</span>
-              <span className={`font-mono text-xs font-semibold ${
-                Number(telemetry?.gps?.satellites ?? telemetry?.gps?.num_satellites ?? 0) >= 8 
-                  ? 'text-green-400' 
-                  : Number(telemetry?.gps?.satellites ?? telemetry?.gps?.num_satellites ?? 0) >= 5 
-                    ? 'text-yellow-400' 
-                    : 'text-red-400'
-              }`}>
-                {telemetry?.gps?.satellites ?? telemetry?.gps?.num_satellites ?? 0} 🛰️
+              <span className={`font-mono text-xs font-semibold ${getGPSColor(satelliteCount)}`}>
+                {satelliteCount} 🛰️
               </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-gray-400 text-xs w-16">Fix Type:</span>
-              <span className={`text-xs font-semibold ${
-                (telemetry?.gps?.fix_type ?? 0) >= 3 ? 'text-green-400' : 'text-yellow-400'
-              }`}>
-                {(telemetry?.gps?.fix_type ?? 0) >= 3 ? '3D FIX' : 
-                 (telemetry?.gps?.fix_type ?? 0) === 2 ? '2D FIX' : 'NO FIX'}
+              <span className={`text-xs font-semibold ${getGPSFixColor(gpsFixType)}`}>
+                {getGPSFixString(gpsFixType)}
               </span>
             </div>
             {telemetry?.gps?.hdop !== undefined && (
