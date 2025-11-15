@@ -496,30 +496,37 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
+          console.log('📨 WebSocket message received:', message);
           
           switch (message.type) {
             case 'telemetry_update':
-              handleTelemetryUpdate(message.data);
+              // ⭐ IMPROVED: Handle both message.data and root-level data
+              const telemetryData = message.data || message;
+              handleTelemetryUpdate(telemetryData);
               break;
             case 'connection_info':
-              console.log('Connection info:', message);
+              console.log('🔌 Connection info:', message);
               break;
             case 'error':
-              console.error('WebSocket error:', message.message);
-              showToast(message.message, 'error');
+              console.error('❌ WebSocket error:', message.message);
               break;
             case 'pong':
+              // Silent - heartbeat response
               break;
             default:
-              console.log('Unknown message type:', message);
+              console.log('❓ Unknown message type:', message.type);
+              console.log('Full message:', message);
           }
         } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
+          console.error('❌ Error parsing WebSocket message:', error);
+          console.error('Raw event data:', event.data);
         }
       };
       
       ws.onerror = (error) => {
         console.error('❌ WebSocket error:', error);
+        console.error('WebSocket state:', ws.readyState);
+        console.error('WebSocket URL:', `${WS_BASE}/ws/telemetry`);
         setWsConnected(false);
       };
       
@@ -1559,42 +1566,86 @@ const DroneFlightVisualization: React.FC<DroneFlightVisualizationProps> = ({
   const updateCountRef = useRef<number>(0);
   const updateTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleTelemetryUpdate = (data: TelemetryData) => {
-    setTelemetry(data);
-    setLastTelemetryUpdate(Date.now());
-    
-    setTelemetryPulse(true);
-    setTimeout(() => setTelemetryPulse(false), 200);
-    
-    updateCountRef.current += 1;
-    
-    if (data.position) {
-      const { lat, lon, alt } = data.position;
-      
-      if (isValidCoordinate(lat, lon)) {
-        const newPoint: FlightPath = {
-          lat,
-          lon,
-          alt,
-          timestamp: Date.now(),
-        };
-        
-        setFlightPath(prev => {
-          const updated = [...prev, newPoint];
-          return updated.slice(-500);
-        });
-        
-        // Smooth map centering with interpolation
-        if (status?.flying || simulationRunning) {
-          setMapCenter(prevCenter => {
-            // Smooth transition (exponential moving average)
-            const smoothingFactor = 0.3;
-            const newLat = prevCenter[0] + (lat - prevCenter[0]) * smoothingFactor;
-            const newLon = prevCenter[1] + (lon - prevCenter[1]) * smoothingFactor;
-            return [newLat, newLon];
-          });
-        }
+  const handleTelemetryUpdate = (data: any) => {
+    try {
+      // ⭐ DEFENSIVE CHECK: Ensure data exists
+      if (!data) {
+        console.warn('⚠️ Received empty telemetry data');
+        return;
       }
+      
+      console.log('📡 Raw telemetry data:', data);
+      
+      // Extract position from various possible structures
+      const position = data.position || data.current_position || null;
+      
+      // ⭐ Update telemetry state with fallbacks
+      setTelemetry({
+        timestamp: data.timestamp || new Date().toISOString(),
+        position: position,
+        velocity: data.velocity || null,
+        attitude: data.attitude || null,
+        battery: data.battery || null,
+        gps: data.gps || null,
+        armed: data.armed ?? null,
+        mode: data.mode || null,
+        mission_current: data.mission_current ?? null,
+        mission_count: data.mission_count ?? null
+      });
+      
+      // ⭐ Update timestamp and pulse effect
+      setLastTelemetryUpdate(Date.now());
+      setTelemetryPulse(true);
+      setTimeout(() => setTelemetryPulse(false), 200);
+      
+      // ⭐ Increment update counter for frequency calculation
+      updateCountRef.current += 1;
+      
+      // ⭐ Update drone position with comprehensive validation
+      if (position) {
+        const lat = position.lat ?? position.latitude;
+        const lon = position.lon ?? position.longitude;
+        const alt = position.alt ?? position.altitude ?? 0;
+        
+        if (lat !== undefined && lon !== undefined && 
+            !isNaN(lat) && !isNaN(lon) &&
+            lat !== 0 && lon !== 0 &&
+            lat >= -90 && lat <= 90 && 
+            lon >= -180 && lon <= 180) {
+          
+          const newPosition = { lat, lon, alt };
+          setDronePosition(newPosition);
+          
+          // Add to flight path
+          setFlightPath(prev => {
+            const newPath = [...prev, {
+              lat: newPosition.lat,
+              lon: newPosition.lon,
+              timestamp: Date.now()
+            }];
+            return newPath.slice(-500); // Keep last 500 points
+          });
+          
+          console.log('✅ Updated position:', newPosition);
+        } else {
+          console.warn('⚠️ Invalid position coordinates:', { lat, lon, alt });
+        }
+      } else {
+        console.warn('⚠️ Position data missing');
+      }
+      
+      // Update mission progress
+      if (data.mission_current !== undefined && data.mission_count !== undefined) {
+        setMissionProgress({
+          current: data.mission_current,
+          total: data.mission_count
+        });
+        console.log('✅ Mission progress:', data.mission_current, '/', data.mission_count);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error handling telemetry update:', error);
+      console.error('Problematic data:', data);
     }
   };
 

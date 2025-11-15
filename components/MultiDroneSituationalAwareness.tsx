@@ -362,9 +362,8 @@ const DEMO_DRONES: DemoDrone[] = [
     name: 'Lucknow Central Patrol',
     callsign: 'LKO-01',
     type: 'surveillance',
-    position: { lat: 26.8467, lon: 80.9462, alt: 100 },
+    position: { lat: 26.9000, lon: 81.0300, alt: 100 },
     waypoints: [
-      { lat: 26.8467, lon: 80.9462, alt: 100, label: 'Hazratganj' },
       { lat: 26.8650, lon: 80.9800, alt: 110, label: 'Aminabad' },
       { lat: 26.8850, lon: 81.0100, alt: 120, label: 'Alambagh' },
       { lat: 26.9000, lon: 81.0300, alt: 100, label: 'Gomti Nagar Ext' },
@@ -374,100 +373,39 @@ const DEMO_DRONES: DemoDrone[] = [
     speed: 20,
     heading: 45,
     corridor: 'City Surveillance',
-    corridorColor: '#3b82f6',
+    corridorColor: '#647590ff',
     mission: 'Lucknow Urban Patrol',
   },
   {
     id: 'UAV-002',
-    name: 'IIT Kanpur Campus',
-    callsign: 'IITK-02',
-    type: 'campus',
-    position: { lat: 26.5123, lon: 80.2329, alt: 120 },
+    name: 'Eastern Surveillance',
+    callsign: 'EST-04',
+    type: 'surveillance',
+    position: { lat: 26.8500, lon: 81.8000, alt: 180 },
     waypoints: [
-      { lat: 26.5123, lon: 80.2329, alt: 120, label: 'IIT Main Gate' },
-      { lat: 26.5180, lon: 80.2360, alt: 120, label: 'Academic Complex' },
-      { lat: 26.5095, lon: 80.2380, alt: 125, label: 'Hall 1-3' },
-      { lat: 26.5140, lon: 80.2300, alt: 120, label: 'Sports Complex' },
+      { lat: 26.8500, lon: 81.8000, alt: 180, label: 'Faizabad Border' },
+      { lat: 26.9500, lon: 81.5000, alt: 180, label: 'Sector Alpha' },
+      { lat: 27.0800, lon: 81.2000, alt: 180, label: 'Barabanki East' },
     ],
-    status: 'active',
-    battery: 92,
+    status: 'patrol',
+    battery: 83,
     speed: 20,
-    heading: 90,
-    corridor: 'Campus Security',
-    corridorColor: '#10b981',
-    mission: 'IIT Campus Monitor',
+    heading: 270,
+    corridor: 'Eastern Border',
+    corridorColor: '#6eb423ff',
+    mission: 'Eastern Border Patrol',
   },
   {
     id: 'UAV-003',
-    name: 'Kanpur City Monitor',
-    callsign: 'KNP-03',
-    type: 'surveillance',
-    position: { lat: 26.4499, lon: 80.3319, alt: 95 },
-    waypoints: [
-      { lat: 26.4499, lon: 80.3319, alt: 95, label: 'Civil Lines' },
-      { lat: 26.4650, lon: 80.3500, alt: 100, label: 'Mall Road' },
-      { lat: 26.4750, lon: 80.3200, alt: 105, label: 'Kakadeo' },
-      { lat: 26.4550, lon: 80.3150, alt: 95, label: 'Swaroop Nagar' },
-    ],
-    status: 'active',
-    battery: 78,
-    speed: 20,
-    heading: 135,
-    corridor: 'City Surveillance',
-    corridorColor: '#06b6d4',
-    mission: 'Kanpur Urban Patrol',
-  },
-  {
-    id: 'UAV-004',
-    name: 'Highway Monitor',
-    callsign: 'HWY-04',
-    type: 'highway',
-    position: { lat: 26.4499, lon: 80.3319, alt: 200 },
-    waypoints: [
-      { lat: 26.4499, lon: 80.3319, alt: 200, label: 'Kanpur' },
-      { lat: 26.5000, lon: 80.5000, alt: 200, label: 'Rania' },
-      { lat: 26.6500, lon: 80.7000, alt: 200, label: 'Unnao' },
-      { lat: 26.8467, lon: 80.9462, alt: 200, label: 'Lucknow' },
-    ],
-    status: 'patrol',
-    battery: 88,
-    speed: 20,
-    heading: 270,
-    corridor: 'Highway Monitoring',
-    corridorColor: '#f97316',
-    mission: 'Expressway Surveillance',
-  },
-  {
-    id: 'UAV-005',
-    name: 'Gomti Nagar Patrol',
-    callsign: 'GMN-05',
-    type: 'surveillance',
-    position: { lat: 26.8550, lon: 81.0150, alt: 110 },
-    waypoints: [
-      { lat: 26.8550, lon: 81.0150, alt: 110, label: 'Gomti Nagar' },
-      { lat: 26.8700, lon: 81.0250, alt: 115, label: 'Vibhuti Khand' },
-      { lat: 26.8600, lon: 81.0400, alt: 110, label: 'Indira Nagar' },
-      { lat: 26.8450, lon: 81.0300, alt: 110, label: 'Nirala Nagar' },
-    ],
-    status: 'active',
-    battery: 91,
-    speed: 20,
-    heading: 180,
-    corridor: 'Residential Area',
-    corridorColor: '#ec4899',
-    mission: 'Gomti Nagar Security',
-  },
-  {
-    id: 'UAV-006',
     name: 'Regional Patrol North',
     callsign: 'REG-06',
     type: 'regional',
-    position: { lat: 27.3968, lon: 80.1250, alt: 150 },
+    position: { lat: 26.9500, lon: 80.7000, alt: 150 },
     waypoints: [
-      { lat: 27.3968, lon: 80.1250, alt: 150, label: 'Hardoi' },
-      { lat: 27.1500, lon: 80.4000, alt: 155, label: 'Sandila' },
+      { lat: 26.8300, lon: 80.9400, alt: 150, label: 'Lucknow' },
       { lat: 26.9500, lon: 80.7000, alt: 150, label: 'Malihabad' },
-      { lat: 26.8467, lon: 80.9462, alt: 150, label: 'Lucknow' },
+      { lat: 27.1500, lon: 80.4000, alt: 155, label: 'Sandila' },
+      { lat: 27.3968, lon: 80.1250, alt: 150, label: 'Hardoi' },
     ],
     status: 'patrol',
     battery: 79,
@@ -478,7 +416,7 @@ const DEMO_DRONES: DemoDrone[] = [
     mission: 'North UP Patrol',
   },
   {
-    id: 'UAV-007',
+    id: 'UAV-004',
     name: 'Border Monitor East',
     callsign: 'BRD-07',
     type: 'highway',
@@ -496,27 +434,7 @@ const DEMO_DRONES: DemoDrone[] = [
     corridor: 'Border Surveillance',
     corridorColor: '#eab308',
     mission: 'Eastern Border Patrol',
-  },
-  {
-    id: 'UAV-008',
-    name: 'Airport Perimeter',
-    callsign: 'APT-08',
-    type: 'campus',
-    position: { lat: 26.7606, lon: 80.8893, alt: 130 },
-    waypoints: [
-      { lat: 26.7606, lon: 80.8893, alt: 130, label: 'Airport Terminal' },
-      { lat: 26.7650, lon: 80.8950, alt: 130, label: 'North Runway' },
-      { lat: 26.7550, lon: 80.8950, alt: 135, label: 'South Runway' },
-      { lat: 26.7580, lon: 80.8850, alt: 130, label: 'Cargo Area' },
-    ],
-    status: 'active',
-    battery: 95,
-    speed: 18,
-    heading: 45,
-    corridor: 'Airport Security',
-    corridorColor: '#14b8a6',
-    mission: 'Airport Perimeter Security',
-  },
+  }
 ];
 
 // ============================================================================
@@ -631,6 +549,10 @@ const MultiDroneAwareness: React.FC = () => {
   const [simulationMode, setSimulationMode] = useState<boolean>(false);
   const [simulationActive, setSimulationActive] = useState<boolean>(false);
   
+  // ⭐ NEW: Dummy Mission Drone Animation State
+  const [showDummyMissionDrone, setShowDummyMissionDrone] = useState<boolean>(true);
+  const [dummyMissionDroneState, setDummyMissionDroneState] = useState<AnimatedDroneState | null>(null);
+  
   // Simulation state
   const [telemetry, setTelemetry] = useState<TelemetryData | null>(null);
   const [flightPath, setFlightPath] = useState<FlightPathPoint[]>([]);
@@ -659,6 +581,10 @@ const MultiDroneAwareness: React.FC = () => {
   const animationFrameRef = useRef<number | null>(null);
   const lastUpdateRef = useRef<number>(Date.now());
   
+  // ⭐ NEW: Dummy Mission Drone Animation ref
+  const dummyDroneAnimationFrameRef = useRef<number | null>(null);
+  const dummyDroneLastUpdateRef = useRef<number>(Date.now());
+  
   // Previous position ref for heading calculation
   const prevPositionRef = useRef<Position | null>(null);
   
@@ -684,6 +610,49 @@ const MultiDroneAwareness: React.FC = () => {
     });
     setAnimatedDrones(initialStates);
   }, [demoDrones]);
+  
+  // ============================================================================
+  // ⭐ NEW: INITIALIZE DUMMY MISSION DRONE STATE
+  // ============================================================================
+  
+  // ⭐ IMPROVED: Initialize dummy drone state properly
+  useEffect(() => {
+    if (selectedMission && selectedMission.waypoints.length > 0 && !simulationActive) {
+      // Ensure waypoints are properly formatted
+      const missionWaypoints = selectedMission.waypoints.map(wp => ({
+        lat: wp.lat,
+        lon: wp.lng ?? wp.lon,
+        alt: wp.alt ?? 100,
+        label: wp.label
+      }));
+      
+      if (missionWaypoints.length > 0) {
+        // Calculate initial heading from first two waypoints if available
+        let initialHeading = 0;
+        if (missionWaypoints.length > 1) {
+          initialHeading = calculateHeading(missionWaypoints[0], missionWaypoints[1]);
+        }
+        
+        setDummyMissionDroneState({
+          position: { ...missionWaypoints[0] },
+          heading: initialHeading,
+          currentWaypointIndex: 0,
+          progress: 0,
+        });
+        
+        // Ensure the dummy drone is visible by default
+        setShowDummyMissionDrone(true);
+        
+        console.log('✅ Dummy mission drone initialized:', {
+          position: missionWaypoints[0],
+          heading: initialHeading,
+          totalWaypoints: missionWaypoints.length
+        });
+      }
+    } else {
+      setDummyMissionDroneState(null);
+    }
+  }, [selectedMission, simulationActive]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // ============================================================================
   // ANIMATION LOOP
@@ -758,6 +727,75 @@ const MultiDroneAwareness: React.FC = () => {
   }, [isAnimating, demoDrones]);
   
   // ============================================================================
+  // ⭐ NEW: DUMMY MISSION DRONE ANIMATION LOOP
+  // ============================================================================
+  
+  useEffect(() => {
+    if (!isAnimating || !showDummyMissionDrone || !dummyMissionDroneState || simulationActive) {
+      if (dummyDroneAnimationFrameRef.current) {
+        cancelAnimationFrame(dummyDroneAnimationFrameRef.current);
+        dummyDroneAnimationFrameRef.current = null;
+      }
+      return;
+    }
+    
+    const missionWaypoints = getMissionWaypoints();
+    if (missionWaypoints.length < 2) return;
+    
+    const animateDummyDrone = () => {
+      const now = Date.now();
+      const deltaTime = (now - dummyDroneLastUpdateRef.current) / 1000;
+      dummyDroneLastUpdateRef.current = now;
+      
+      setDummyMissionDroneState(prevState => {
+        if (!prevState) return null;
+        
+        const currentWp = missionWaypoints[prevState.currentWaypointIndex];
+        const nextWpIndex = (prevState.currentWaypointIndex + 1) % missionWaypoints.length;
+        const nextWp = missionWaypoints[nextWpIndex];
+        
+        const distance = calculateDistance(currentWp, nextWp);
+        // Mission drone speed: 25 m/s
+        const speedInDegreesPerSecond = (25 / 111000);
+        const progressIncrement = (speedInDegreesPerSecond * deltaTime) / distance;
+        
+        let newProgress = prevState.progress + progressIncrement;
+        let newWaypointIndex = prevState.currentWaypointIndex;
+        
+        if (newProgress >= 1.0) {
+          newProgress = 0;
+          newWaypointIndex = nextWpIndex;
+        }
+        
+        const from = missionWaypoints[newWaypointIndex];
+        const toIndex = (newWaypointIndex + 1) % missionWaypoints.length;
+        const to = missionWaypoints[toIndex];
+        
+        const newPosition = interpolatePosition(from, to, newProgress);
+        const newHeading = calculateHeading(from, to);
+        
+        return {
+          position: newPosition,
+          heading: newHeading,
+          currentWaypointIndex: newWaypointIndex,
+          progress: newProgress,
+        };
+      });
+      
+      dummyDroneAnimationFrameRef.current = requestAnimationFrame(animateDummyDrone);
+    };
+    
+    dummyDroneLastUpdateRef.current = Date.now();
+    dummyDroneAnimationFrameRef.current = requestAnimationFrame(animateDummyDrone);
+    
+    return () => {
+      if (dummyDroneAnimationFrameRef.current) {
+        cancelAnimationFrame(dummyDroneAnimationFrameRef.current);
+      }
+    };
+  }, [isAnimating, showDummyMissionDrone, dummyMissionDroneState, simulationActive, selectedMission]);
+  
+  // ============================================================================
   // UPDATE HELICOPTER HEADING FROM TELEMETRY
   // ============================================================================
   
@@ -795,6 +833,12 @@ const MultiDroneAwareness: React.FC = () => {
         
         setSelectedMission(mission);
         setShowMissionPanel(true);
+        
+        // ⭐ ENSURE DUMMY DRONE IS ENABLED BY DEFAULT
+        if (mode !== 'simulate') {
+          setShowDummyMissionDrone(true);
+          console.log('✅ Dummy drone enabled by default for mission preview');
+        }
         
         if (mode === 'simulate') {
           setSimulationActive(true);
@@ -848,29 +892,37 @@ const MultiDroneAwareness: React.FC = () => {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
+          console.log('📨 WebSocket message received:', message);
           
           switch (message.type) {
             case 'telemetry_update':
-              handleTelemetryUpdate(message.data);
+              // ⭐ IMPROVED: Handle both message.data and root-level data
+              const telemetryData = message.data || message;
+              handleTelemetryUpdate(telemetryData);
               break;
             case 'connection_info':
-              console.log('Connection info:', message);
+              console.log('🔌 Connection info:', message);
               break;
             case 'error':
-              console.error('WebSocket error:', message.message);
+              console.error('❌ WebSocket error:', message.message);
               break;
             case 'pong':
+              // Silent - heartbeat response
               break;
             default:
-              console.log('Unknown message type:', message);
+              console.log('❓ Unknown message type:', message.type);
+              console.log('Full message:', message);
           }
         } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
+          console.error('❌ Error parsing WebSocket message:', error);
+          console.error('Raw event data:', event.data);
         }
       };
       
       ws.onerror = (error) => {
         console.error('❌ WebSocket error:', error);
+        console.error('WebSocket state:', ws.readyState);
+        console.error('WebSocket URL:', `${WS_BASE}/ws/telemetry`);
         setWsConnected(false);
       };
       
@@ -924,49 +976,70 @@ const MultiDroneAwareness: React.FC = () => {
   // ============================================================================
   // TELEMETRY UPDATE HANDLER
   // ============================================================================
-  
   const handleTelemetryUpdate = (data: any) => {
     try {
+      // ⭐ DEFENSIVE CHECK: Ensure data exists
+      if (!data) {
+        console.warn('⚠️ Received empty telemetry data');
+        return;
+      }
+      
+      console.log('📡 Raw telemetry data:', data);
+      
+      // Extract position from various possible structures
+      const position = data.position || data.current_position || null;
+      
+      // ⭐ IMPROVED: Only update telemetry if we have valid data
       setTelemetry({
-        timestamp: data.timestamp,
-        position: data.position || data.current_position,
-        velocity: data.velocity,
-        attitude: data.attitude,
-        battery: data.battery,
-        gps: data.gps,
-        armed: data.armed,
-        mode: data.mode,
-        mission_current: data.mission_current,
-        mission_count: data.mission_count
+        timestamp: data.timestamp || new Date().toISOString(),
+        position: position,
+        velocity: data.velocity || null,
+        attitude: data.attitude || null,
+        battery: data.battery || null,
+        gps: data.gps || null,
+        armed: data.armed ?? null,
+        mode: data.mode || null,
+        mission_current: data.mission_current ?? null,
+        mission_count: data.mission_count ?? null
       });
       
-      if (data.position || data.current_position) {
-        const pos = data.position || data.current_position;
-        setDronePosition({
-          lat: pos.lat || pos.latitude,
-          lon: pos.lon || pos.longitude,
-          alt: pos.alt || pos.altitude
-        });
+      // ⭐ IMPROVED: Update drone position with better null checking
+      if (position && (position.lat || position.latitude) && (position.lon || position.longitude)) {
+        const newPosition = {
+          lat: position.lat ?? position.latitude,
+          lon: position.lon ?? position.longitude,
+          alt: position.alt ?? position.altitude ?? 0
+        };
         
+        setDronePosition(newPosition);
+        
+        // Add to flight path
         setFlightPath(prev => {
           const newPath = [...prev, {
-            lat: pos.lat || pos.latitude,
-            lon: pos.lon || pos.longitude,
+            lat: newPosition.lat,
+            lon: newPosition.lon,
             timestamp: Date.now()
           }];
           return newPath.slice(-500);
         });
+        
+        console.log('✅ Updated position:', newPosition);
+      } else {
+        console.warn('⚠️ Position data incomplete:', position);
       }
       
+      // Update mission progress
       if (data.mission_current !== undefined && data.mission_count !== undefined) {
         setMissionProgress({
           current: data.mission_current,
           total: data.mission_count
         });
+        console.log('✅ Mission progress:', data.mission_current, '/', data.mission_count);
       }
       
     } catch (error) {
-      console.error('Error handling telemetry update:', error);
+      console.error('❌ Error handling telemetry update:', error);
+      console.error('Problematic data:', data);
     }
   };
   
@@ -1058,6 +1131,7 @@ const MultiDroneAwareness: React.FC = () => {
     setTelemetry(null);
     setHelicopterHeading(0);
     prevPositionRef.current = null;
+    setDummyMissionDroneState(null);
   };
   
   // ============================================================================
@@ -1066,6 +1140,11 @@ const MultiDroneAwareness: React.FC = () => {
   
   const handleToggleAnimation = () => {
     setIsAnimating(!isAnimating);
+  };
+  
+  // ⭐ NEW: Toggle Dummy Mission Drone
+  const handleToggleDummyDrone = () => {
+    setShowDummyMissionDrone(!showDummyMissionDrone);
   };
   
   // ============================================================================
@@ -1192,6 +1271,15 @@ const MultiDroneAwareness: React.FC = () => {
       Math.pow(telemetry.velocity.vx, 2) + 
       Math.pow(telemetry.velocity.vy, 2)
     );
+  };
+  
+  // ⭐ NEW: Get dummy drone battery (simulated)
+  const getDummyDroneBattery = (): number => {
+    if (!dummyMissionDroneState) return 100;
+    // Simulate battery drain based on progress through mission
+    const totalWaypoints = missionWaypoints.length;
+    const progress = dummyMissionDroneState.currentWaypointIndex / totalWaypoints;
+    return Math.max(100 - (progress * 15), 85); // Drains from 100% to 85%
   };
 
   // ============================================================================
@@ -1436,59 +1524,66 @@ const MultiDroneAwareness: React.FC = () => {
           />
         )}
         
-        {/* SELECTED MISSION HELICOPTER (STANDBY MODE) */}
-        {selectedMission && !simulationActive && missionWaypoints.length > 0 && (
+        {/* ⭐ NEW: DUMMY MISSION DRONE (ANIMATED) */}
+        {selectedMission && !simulationActive && showDummyMissionDrone && dummyMissionDroneState && isAnimating && (
           <Marker
-            position={[missionWaypoints[0].lat, missionWaypoints[0].lon]}
-            icon={createHelicopterIcon(getCorridorColor(), 0, 48)}
-            zIndexOffset={1500}
+            position={[dummyMissionDroneState.position.lat, dummyMissionDroneState.position.lon]}
+            icon={createAnimatedHelicopterIcon(getCorridorColor(), dummyMissionDroneState.heading, 52, true)}
+            zIndexOffset={1800}
           >
             <Popup>
-              <div className="p-3 min-w-[220px]">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="font-semibold text-base">{selectedMission.mission_name}</div>
-                    <div className="text-xs text-gray-600">Mission</div>
-                  </div>
-                  <span className="px-2 py-1 text-xs rounded font-semibold bg-yellow-600">
-                    STANDBY
-                  </span>
+              <div className="p-3 min-w-[240px]">
+                <div className="font-semibold text-sm mb-2 flex items-center space-x-2">
+                  <span>🚁</span>
+                  <span>{selectedMission.mission_name}</span>
                 </div>
-                
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                    <span className="text-gray-600 font-medium">Type:</span>
-                    <span className="font-semibold capitalize">Helicopter</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                    <span className="text-gray-600 font-medium">Mission:</span>
-                    <span className="font-semibold text-right">{selectedMission.mission_name}</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                    <span className="text-gray-600 font-medium">Corridor:</span>
-                    <span className="font-semibold">{selectedMission.corridor_label || 'N/A'}</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                    <span className="text-gray-600 font-medium">Start Point:</span>
-                    <span className="font-semibold">{missionWaypoints[0].label || 'WP1'}</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
-                    <span className="text-gray-600 font-medium">Battery:</span>
-                    <span className="font-semibold text-green-600">100%</span>
-                  </div>
-                  <div className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                <span className="px-2 py-1 text-xs rounded font-semibold bg-blue-600 text-white">
+                  PREVIEW MODE
+                </span>
+                <div className="space-y-2 text-xs mt-3">
+                  <div className="flex justify-between bg-gray-50 p-2 rounded">
                     <span className="text-gray-600 font-medium">Status:</span>
-                    <span className="font-semibold text-yellow-600">Ready to Fly</span>
+                    <span className="font-semibold text-blue-600">Simulated Flight</span>
                   </div>
+                  <div className="flex justify-between bg-gray-50 p-2 rounded">
+                    <span className="text-gray-600 font-medium">Altitude:</span>
+                    <span className="font-semibold">{dummyMissionDroneState.position.alt.toFixed(0)}m AGL</span>
+                  </div>
+                  <div className="flex justify-between bg-gray-50 p-2 rounded">
+                    <span className="text-gray-600 font-medium">Speed:</span>
+                    <span className="font-semibold">25 m/s</span>
+                  </div>
+                  <div className="flex justify-between bg-gray-50 p-2 rounded">
+                    <span className="text-gray-600 font-medium">Heading:</span>
+                    <span className="font-semibold">{dummyMissionDroneState.heading.toFixed(0)}°</span>
+                  </div>
+                  <div className="flex justify-between bg-gray-50 p-2 rounded">
+                    <span className="text-gray-600 font-medium">Battery:</span>
+                    <span className="font-semibold text-green-600">{getDummyDroneBattery().toFixed(0)}%</span>
+                  </div>
+                  <div className="flex justify-between bg-gray-50 p-2 rounded">
+                    <span className="text-gray-600 font-medium">Waypoint:</span>
+                    <span className="font-semibold">
+                      {dummyMissionDroneState.currentWaypointIndex + 1} / {missionWaypoints.length}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-3 pt-2 border-t border-gray-200">
+                  <p className="text-xs text-gray-600 italic">
+                    This is a preview simulation. Start real simulation for live telemetry.
+                  </p>
                 </div>
               </div>
             </Popup>
-            
-            <Tooltip permanent direction="top" offset={[0, -28]}>
-              <div className="text-xs font-bold bg-white px-2 py-1 rounded shadow-lg border-2" style={{ borderColor: getCorridorColor() }}>
-                <strong style={{ color: getCorridorColor() }}>🚁 MISSION</strong>
-                <br />
-                <span className="text-yellow-600">⏸ STANDBY</span>
+            <Tooltip permanent direction="top" offset={[0, -32]}>
+              <div className="text-xs font-bold bg-white px-3 py-2 rounded-lg shadow-xl border-2" style={{ borderColor: getCorridorColor() }}>
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: getCorridorColor() }}></div>
+                  <strong style={{ color: getCorridorColor() }}>🚁 PREVIEW</strong>
+                </div>
+                <div className="text-gray-700 mt-1">
+                  {getDummyDroneBattery().toFixed(0)}% • {dummyMissionDroneState.position.alt.toFixed(0)}m • 25 m/s
+                </div>
               </div>
             </Tooltip>
           </Marker>
@@ -1600,7 +1695,7 @@ const MultiDroneAwareness: React.FC = () => {
               <h4 className="text-lg font-bold text-white mb-1">
                 {selectedMission.mission_name}
               </h4>
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 flex-wrap gap-1">
                 {selectedMission.mission_type && (
                   <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded">
                     {selectedMission.mission_type}
@@ -1611,7 +1706,12 @@ const MultiDroneAwareness: React.FC = () => {
                     {selectedMission.status.toUpperCase()}
                   </span>
                 )}
-                {!simulationActive && (
+                {!simulationActive && showDummyMissionDrone && isAnimating && (
+                  <span className="px-2 py-1 bg-blue-600 text-white text-xs rounded animate-pulse">
+                    PREVIEW
+                  </span>
+                )}
+                {!simulationActive && !isAnimating && (
                   <span className="px-2 py-1 bg-yellow-600 text-white text-xs rounded">
                     STANDBY
                   </span>
@@ -1682,13 +1782,28 @@ const MultiDroneAwareness: React.FC = () => {
             {/* Simulation Controls */}
             <div className="pt-3 border-t border-slate-700 space-y-2">
               {!simulationActive ? (
-                <button
-                  onClick={handleStartSimulation}
-                  className="w-full flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg transition-colors font-medium"
-                >
-                  <Plane size={18} />
-                  <span>Start Simulation</span>
-                </button>
+                <>
+                  <button
+                    onClick={handleStartSimulation}
+                    className="w-full flex items-center justify-center space-x-2 bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg transition-colors font-medium"
+                  >
+                    <Plane size={18} />
+                    <span>Start Real Simulation</span>
+                  </button>
+                  
+                  {/* ⭐ NEW: Toggle Dummy Drone Button */}
+                  <button
+                    onClick={handleToggleDummyDrone}
+                    className={`w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+                      showDummyMissionDrone 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                        : 'bg-slate-700 hover:bg-slate-600 text-white'
+                    }`}
+                  >
+                    {showDummyMissionDrone ? <Pause size={16} /> : <Play size={16} />}
+                    <span>{showDummyMissionDrone ? 'Hide' : 'Show'} Preview Drone</span>
+                  </button>
+                </>
               ) : (
                 <button
                   onClick={handleStopSimulation}
@@ -1789,32 +1904,16 @@ const MultiDroneAwareness: React.FC = () => {
         <div className="flex items-center justify-between">
           <h3 className="text-white font-semibold text-sm">Map Controls</h3>
           <div className="flex items-center space-x-2">
-            {/* Animation Toggle Button */}
-            {/* <button
-              onClick={handleToggleAnimation}
-              className={`px-3 py-1 rounded-lg transition-colors flex items-center space-x-1 text-xs font-medium ${
-                isAnimating 
-                  ? 'bg-green-600 hover:bg-green-700 text-white' 
-                  : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
-              }`}
-            >
-              {isAnimating ? (
-                <>
-                  <Pause size={14} />
-                  <span>Pause</span>
-                </>
-              ) : (
-                <>
-                  <Play size={14} />
-                  <span>Play</span>
-                </>
-              )}
-            </button> */}
-            
             {simulationMode && simulationActive && wsConnected && (
               <div className="flex items-center space-x-1">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                 <span className="text-xs text-green-400">Live</span>
+              </div>
+            )}
+            {!simulationActive && showDummyMissionDrone && isAnimating && selectedMission && (
+              <div className="flex items-center space-x-1">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+                <span className="text-xs text-blue-400">Preview</span>
               </div>
             )}
           </div>
@@ -1848,8 +1947,8 @@ const MultiDroneAwareness: React.FC = () => {
                   <div className="text-slate-500 text-[10px]">Helicopter</div>
                 </div>
               </div>
-              <span className={simulationActive ? "text-green-400" : "text-yellow-400"}>
-                {simulationActive ? "ACTIVE" : "STANDBY"}
+              <span className={simulationActive ? "text-green-400" : showDummyMissionDrone && isAnimating ? "text-blue-400" : "text-yellow-400"}>
+                {simulationActive ? "LIVE" : showDummyMissionDrone && isAnimating ? "PREVIEW" : "STANDBY"}
               </span>
             </div>
           )}
@@ -1880,7 +1979,7 @@ const MultiDroneAwareness: React.FC = () => {
         
         <div className="text-xs text-slate-500 pt-2 border-t border-slate-700">
           {selectedMission 
-            ? `🚁 Mission + ${demoDrones.length} Demo Drones` 
+            ? `🚁 Mission${showDummyMissionDrone && !simulationActive ? ' (Preview)' : ''} + ${demoDrones.length} Demo Drones` 
             : `${demoDrones.length} Demo Drones • Lucknow-Kanpur Region`
           }
         </div>
